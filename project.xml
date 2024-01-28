@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project>
 	
-	<meta title="Medieval Fantasy City Generator" package="com.watabou.towngenerator" version="0.0.1" company="Retronic Games" />
+	<meta title="Medieval Town Map" package="com.watabou.towngenerator" version="0.0.2"/>
 	<app main="com.watabou.towngenerator.Main" path="Export" file="TownGenerator" />
 	
 	<source path="Source" />
@@ -16,7 +16,8 @@
 	<window width="800" height="800" fullscreen="false" resizable="true" borderless="false" if="desktop"/>
 	<!-- Mobile -->
 	<window width="0" height="0" fullscreen="true" orientation="portrait" if="mobile" />
-	
+
+	<icon path="Assets/favicon.ico" />
 	<assets path="Assets">
 		<image path="maroubra.png" id="font" />
 	</assets>
