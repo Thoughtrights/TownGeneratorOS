@@ -4,3 +4,8 @@ lacks some of the latest features, namely waterbodies, options UI and some small
 
 You'll need [OpenFL](https://github.com/openfl/openfl) and [msignal](https://github.com/massiveinteractive/msignal) 
 to run this code, both available through `haxelib`.
+
+
+
+
+`sudo lime build html5`
