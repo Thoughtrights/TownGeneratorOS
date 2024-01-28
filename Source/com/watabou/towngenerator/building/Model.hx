@@ -65,15 +65,30 @@ class Model {
 	public var arteries	: Array<Street>;
 	public var streets	: Array<Street>;
 	public var roads	: Array<Street>;
+	public var inputWalls   : Bool;
+	public var inputPlaza   : Bool;
+	public var inputCitadel : Bool;
 
-	public function new( nPatches=-1, seed=-1 ) {
+	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel ) {
 
 		if (seed > 0) Random.reset( seed );
 		this.nPatches = nPatches != -1 ? nPatches : 15;
 
-		plazaNeeded		= Random.bool();
-		citadelNeeded	= Random.bool();
-		wallsNeeded		= Random.bool();
+		if (inputWalls == true) {
+		   wallsNeeded = true;
+		} else {
+		   wallsNeeded = false;
+		}
+		if (inputPlaza == true) {
+		   plazaNeeded = true;
+		} else {
+		   plazaNeeded = false;
+		}
+		if (inputCitadel == true) {
+		   citadelNeeded = true;
+		} else {
+		   citadelNeeded = false;
+		}
 
 		do try {
 			build();
@@ -146,7 +161,7 @@ class Model {
 	private function buildWalls():Void {
 		var reserved = citadel != null ? citadel.shape.copy() : [];
 
-		border = new CurtainWall( wallsNeeded, this, inner, reserved );
+                border = new CurtainWall( wallsNeeded, this, inner, reserved );
 		if (wallsNeeded) {
 			wall = border;
 			wall.buildTowers();

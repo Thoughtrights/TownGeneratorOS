@@ -25,6 +25,8 @@ class TownScene extends Scene {
 		buttons = new Sprite();
 		addChild( buttons );
 
+
+		/* Clean up */
 		var smallTown = new CitySizeButton( "Small Town", 6, 10 );
 		var largeTown = new CitySizeButton( "Large Town", 10, 15 );
 		var smallCity = new CitySizeButton( "Small City", 15, 24 );

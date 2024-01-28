@@ -18,11 +18,18 @@ class CitySizeButton extends Button {
 	}
 
 	private function onClick():Void {
+		StateManager.pullParams();
+		// Overwrite these two
 		StateManager.size = size;
 		StateManager.seed = Random.getSeed();
 		StateManager.pushParams();
 
-		new Model( size );
+		new Model( StateManager.size,
+		    	   StateManager.seed,
+		    	   StateManager.wall,
+			   StateManager.plaza,
+			   StateManager.citadel ); 
+
 		Game.switchScene( TownScene );
 	}
 }
