@@ -20,7 +20,7 @@ class StateManager {
 		var params = new URLSearchParams( Browser.location.search );
 		if (params != null) {
 			var size1 = Std.parseInt( params.get( SIZE ) );
-			if (size1 != null)size = (size1 >= 6 ? (size1 <= 40 ? size1: 40) : 6);
+			if (size1 != null)size = (size1 >= 6 ? (size1 <= 70 ? size1: 70) : 6);
 
 			var seed1 = Std.parseInt( params.get( SEED ) );
 			if (seed1 != null) seed = (seed1 > 0 ? seed1 : -1);
@@ -54,7 +54,7 @@ class StateManager {
 		else if (size >= 24 && size < 40)
 			"Large City"
 		else if (size >= 40)
-			"Metropilis"
+			"Capital City"
 		else
 			"Unknown state";
 	}

@@ -29,9 +29,10 @@ class TownScene extends Scene {
 		var largeTown = new CitySizeButton( "Large Town", 10, 15 );
 		var smallCity = new CitySizeButton( "Small City", 15, 24 );
 		var largeCity = new CitySizeButton( "Large City", 24, 40 );
+		var capitalCity = new CitySizeButton( "Capital City", 48, 70 );
 
 		var pos = 0.0;
-		for (btn in [smallTown, largeTown, smallCity, largeCity]) {
+		for (btn in [smallTown, largeTown, smallCity, largeCity, capitalCity]) {
 			btn.y = pos;
 			pos += btn.height + 1;
 			buttons.addChild( btn );
