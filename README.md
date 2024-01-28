@@ -15,17 +15,18 @@ to run this code, both available through `haxelib`.
 
 * See if we can make a transparent background
 * Toggle on URL for the following:
-** Tooltips
-** Menu
-** Parks 0+
-** Temples 0+
-** Citadels > 1
-** Gates 1+
+  - Tooltips
+  - Menu
+  - Parks 0+
+  - Temples 0+
+  - Citadels > 1
+  - Gates 1+
 * Fix farms
 * Make buildings nice
-** Slightly variable edges
-** No triangular buildings
-** Roofs with variable coloration
+  - Slightly variable edges
+  - No triangular buildings
+  - Roofs with variable coloration
 * Add district coloration
 * Add ocean & bays
 * Add rivers
+* Add configurable *fixed* color palettes
