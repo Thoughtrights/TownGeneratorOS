@@ -11,7 +11,7 @@ to run this code, both available through `haxelib`.
 `sudo lime build html5`
 
 ## Example Query Arguments
-`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=0`
+`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0`
 
 ## To Do
 
@@ -29,3 +29,7 @@ to run this code, both available through `haxelib`.
 * Add ocean & bays
 * Add rivers
 * Add configurable *fixed* color palettes
+* Citadel
+  - I like and don't like how it is attached to the wall.
+  - Would be nicer if it was essentially a secondary inner wall?
+  - Shapes of citadel building are not great
