@@ -11,7 +11,6 @@
 	<haxelib name="msignal" version="1.2.5" />
 
 	<!-- General -->
-	<!-- window background="0xccc5b8" fps="120" vsync="true" hardware="true" allow-high-dpi="true"/ -->
 	<window background="transparent" fps="120" vsync="true" hardware="true" allow-high-dpi="true"/>
 	<!-- Desktop -->
 	<window width="800" height="800" fullscreen="false" resizable="true" borderless="false" if="desktop"/>

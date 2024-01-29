@@ -15,6 +15,8 @@ class StateManager {
 	private static inline var PLAZA = "markets";
 	private static inline var CITADEL = "citadel";
 	private static inline var TRANS = "trans";
+	private static inline var MENU = "menu";
+	private static inline var TOOLTIPS = "tooltips";
 
 	public static var size	: Int = 15;
 	public static var seed	: Int = -1;
@@ -22,6 +24,8 @@ class StateManager {
 	public static var plaza	: Bool= false;
 	public static var citadel : Bool= false;
 	public static var trans : Bool= false;
+	public static var menu  : Bool= true;
+	public static var tooltips : Bool= true;
 
 	public static function pullParams() {
 		#if html5
@@ -75,6 +79,22 @@ class StateManager {
 			      trans = false;
 			   }
 		        }
+			var menu1 = Std.parseInt( params.get( MENU ) );
+			if (menu1 != null) {
+			   if (menu1 == 1) {
+			      menu = true;
+			   } else {
+			      menu = false;
+			   }
+		        }
+			var tooltips1 = Std.parseInt( params.get( TOOLTIPS ) );
+			if (tooltips1 != null) {
+			   if (tooltips1 == 1) {
+			      tooltips = true;
+			   } else {
+			      tooltips = false;
+			   }
+		        }
 		}
 		#end
 	}
@@ -101,14 +121,22 @@ class StateManager {
 		if (trans == true) {
 		   	transArg = 1;
 		}
+		var menuArg = 0;
+		if (menu == true) {
+		   	menuArg = 1;
+		}
+		var tooltipsArg = 0;
+		if (tooltips == true) {
+		   	tooltipsArg = 1;
+		}
 
 		#if html5
 		var loc = Browser.location;
 		var search1 = loc.search;
-		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg';
+		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg';
 		// The next line is not entirely correct, it doesn't take into account hashes
 		var url = search1 != "" ? loc.href.split( search1 ).join( search2 ) : loc.href + search2;
-		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg}, getStateName(), url );
+		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg}, getStateName(), url );
 		#end
 	}
 

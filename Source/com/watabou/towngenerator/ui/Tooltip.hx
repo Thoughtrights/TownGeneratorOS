@@ -27,14 +27,15 @@ class Tooltip extends Bitmap {
 		set( null );
 	}
 
-	private function activation( active:Bool )
-		if (active) {
+	private function activation( active:Bool ) {
+		if ((active) && (StateManager.tooltips)) {
 			stage.addEventListener( MouseEvent.MOUSE_MOVE, onMouseMove );
 			stage.addEventListener( MouseEvent.MOUSE_DOWN, onMouseMove );
 		} else {
 			stage.removeEventListener( MouseEvent.MOUSE_MOVE, onMouseMove );
 			stage.removeEventListener( MouseEvent.MOUSE_DOWN, onMouseMove );
 		}
+	}
 
 	private function onMouseMove( e:MouseEvent ) {
 		x = parent.mouseX + 4;
@@ -44,7 +45,7 @@ class Tooltip extends Bitmap {
 
 	public function set( txt:String ) {
 		visible = (txt != null);
-		if (visible) {
+		if ((visible) && (StateManager.tooltips)) {
 			var bmp:BitmapData = cache[txt];
 			if (bmp == null) {
 				var txtBmp = new BitmapText( Main.uiFont, txt ).bitmapData;

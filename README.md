@@ -10,14 +10,12 @@ to run this code, both available through `haxelib`.
 ## Building
 `sudo lime build html5`
 
-## Example Invocation
-`https://dungeoneer.com/town-map/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=0`
+## Example Query Arguments
+`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=0`
 
 ## To Do
 
 * Toggle on URL for the following:
-  - Tooltips
-  - Menu
   - Parks 0+
   - Temples 0+
   - Citadels > 1

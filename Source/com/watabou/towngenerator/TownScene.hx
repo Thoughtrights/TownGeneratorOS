@@ -24,20 +24,21 @@ class TownScene extends Scene {
 
 		buttons = new Sprite();
 		addChild( buttons );
+		/* Leave the above for extensibility */
 
+		if (StateManager.menu) {
+			var smallTown = new CitySizeButton( "Small Town", 6, 10 );
+			var largeTown = new CitySizeButton( "Large Town", 10, 15 );
+			var smallCity = new CitySizeButton( "Small City", 15, 24 );
+			var largeCity = new CitySizeButton( "Large City", 24, 40 );
+			var capitalCity = new CitySizeButton( "Capital City", 48, 70 );
 
-		/* Clean up */
-		var smallTown = new CitySizeButton( "Small Town", 6, 10 );
-		var largeTown = new CitySizeButton( "Large Town", 10, 15 );
-		var smallCity = new CitySizeButton( "Small City", 15, 24 );
-		var largeCity = new CitySizeButton( "Large City", 24, 40 );
-		var capitalCity = new CitySizeButton( "Capital City", 48, 70 );
-
-		var pos = 0.0;
-		for (btn in [smallTown, largeTown, smallCity, largeCity, capitalCity]) {
-			btn.y = pos;
-			pos += btn.height + 1;
-			buttons.addChild( btn );
+			var pos = 0.0;
+			for (btn in [smallTown, largeTown, smallCity, largeCity, capitalCity]) {
+			    btn.y = pos;
+			    pos += btn.height + 1;
+			    buttons.addChild( btn );
+			}
 		}
 	}
 
