@@ -10,10 +10,11 @@ to run this code, both available through `haxelib`.
 ## Building
 `sudo lime build html5`
 
+## Example Invocation
+`https://dungeoneer.com/town-map/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=0`
 
 ## To Do
 
-* See if we can make a transparent background
 * Toggle on URL for the following:
   - Tooltips
   - Menu

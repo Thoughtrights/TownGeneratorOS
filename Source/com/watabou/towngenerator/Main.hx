@@ -16,7 +16,9 @@ class Main extends Game {
 		StateManager.pullParams();
 		StateManager.pushParams();
 
-		stage.color = CityMap.palette.paper;
+		if (StateManager.trans == false) {
+		 	   stage.color = CityMap.palette.paper;
+		}
 
 		uiFont = BitmapFont.get( "font", CityMap.palette.paper );
 		uiFont.letterSpacing = 1;

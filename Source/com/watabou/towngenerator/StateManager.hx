@@ -14,12 +14,14 @@ class StateManager {
 	private static inline var WALL = "walls";
 	private static inline var PLAZA = "markets";
 	private static inline var CITADEL = "citadel";
+	private static inline var TRANS = "trans";
 
 	public static var size	: Int = 15;
 	public static var seed	: Int = -1;
 	public static var wall	: Bool= false;
 	public static var plaza	: Bool= false;
 	public static var citadel : Bool= false;
+	public static var trans : Bool= false;
 
 	public static function pullParams() {
 		#if html5
@@ -65,6 +67,14 @@ class StateManager {
 			      citadel = Random.bool();
 			   }
 		        }
+			var trans1 = Std.parseInt( params.get( TRANS ) );
+			if (trans1 != null) {
+			   if (trans1 == 1) {
+			      trans = true;
+			   } else {
+			      trans = false;
+			   }
+		        }
 		}
 		#end
 	}
@@ -87,14 +97,18 @@ class StateManager {
 		if (citadel == true) {
 		   	citadelArg = 1;
 		}
+		var transArg = 0;
+		if (trans == true) {
+		   	transArg = 1;
+		}
 
 		#if html5
 		var loc = Browser.location;
 		var search1 = loc.search;
-		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg';
+		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg';
 		// The next line is not entirely correct, it doesn't take into account hashes
 		var url = search1 != "" ? loc.href.split( search1 ).join( search2 ) : loc.href + search2;
-		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg}, getStateName(), url );
+		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg}, getStateName(), url );
 		#end
 	}
 
