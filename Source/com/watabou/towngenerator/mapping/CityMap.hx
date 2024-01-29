@@ -1,5 +1,7 @@
 package com.watabou.towngenerator.mapping;
 
+import com.watabou.utils.Random;
+
 import openfl.display.Shape;
 import openfl.display.CapsStyle;
 import openfl.display.Graphics;
@@ -57,7 +59,7 @@ class CityMap extends Sprite {
 					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard, Farm:
 						brush.setColor( g, palette.light, palette.dark );
 						for (building in patch.ward.geometry)
-							g.drawPolygon( building );
+						    g.drawPolygon( building );
 					case Park:
 						brush.setColor( g, palette.medium );
 						for (grove in patch.ward.geometry)
@@ -70,13 +72,19 @@ class CityMap extends Sprite {
 				var g = patchView.graphics;
 				switch (Type.getClass( patch.ward )) {
 					case Castle:
-						drawBuilding( g, patch.ward.geometry, advanced_palette.plot, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
+						drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
 					case Cathedral:
-						drawBuilding( g, patch.ward.geometry, advanced_palette.plot, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
+						drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
 					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
-						brush.setColor( g, advanced_palette.plot, advanced_palette.building );
-						for (building in patch.ward.geometry)
-							g.drawPolygon( building );
+						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+						for (building in patch.ward.geometry) {
+						    if (Random.bool(0.8)) {
+							brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+						    } else {
+							brush.setColor( g, advanced_palette.plot_dark, advanced_palette.building );
+						    }
+						    g.drawPolygon( building );
+						}
 					case Farm:
 						brush.setColor( g, advanced_palette.grass, advanced_palette.building );
 						for (building in patch.ward.geometry)

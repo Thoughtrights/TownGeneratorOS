@@ -24,7 +24,6 @@ to run this code, both available through `haxelib`.
 * Make buildings nice
   - Slightly variable edges
   - No triangular buildings
-  - Roofs with variable coloration
 * Add district coloration
 * Add ocean & bays
 * Add rivers
