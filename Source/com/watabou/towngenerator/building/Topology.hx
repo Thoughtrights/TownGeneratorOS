@@ -79,6 +79,17 @@ class Topology {
 		return blocked.contains( v ) ? null : n;
 	}
 
+	// Links two existing land nodes across the river so a street may use the
+	// crossing as a bridge. Harmless if unused — the bridge deck is drawn
+	// regardless.
+	public function addLink( p1:Point, p2:Point ):Void {
+		var n1 = pt2node[p1];
+		var n2 = pt2node[p2];
+		if (n1 == null || n2 == null)
+			return;
+		n1.link( n2, Point.distance( p1, p2 ) );
+	}
+
 	public function buildPath( from:Point, to:Point, exclude:Array<Node>=null ):Array<Point> {
 		var path = graph.aStar( pt2node[from], pt2node[to], exclude );
 		return path == null ? null : [for (n in path) node2pt[n]];

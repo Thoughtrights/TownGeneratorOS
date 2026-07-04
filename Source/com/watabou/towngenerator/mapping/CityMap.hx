@@ -65,7 +65,7 @@ class CityMap extends Sprite {
 		// over every land patch so the water only shows seaward of the
 		// actual patch boundary (a natural shoreline) and never bleeds up
 		// through the gaps between shore-side buildings.
-		if (model.seaShape != null) {
+		if (model.seaShape != null || model.riverShape != null) {
 			var waterView = new Shape();
 			drawWater( waterView.graphics, model );
 			addChild( waterView );
@@ -169,14 +169,51 @@ class CityMap extends Sprite {
 
 		if (model.citadel != null)
 			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true, model.center );
+
+		// Piers and bridges sit on top of the water
+		if ((model.docks != null && model.docks.length > 0) ||
+		    (model.bridges != null && model.bridges.length > 0)) {
+			var deckView = new Shape();
+			if (model.docks != null)
+				for (dock in model.docks)
+					drawPier( deckView.graphics, dock[0], dock[1] );
+			if (model.bridges != null)
+				for (bridge in model.bridges)
+					drawBridge( deckView.graphics, bridge[0], bridge[1] );
+			addChild( deckView );
+		}
+	}
+
+	private function drawPier( g:Graphics, base:Point, tip:Point ):Void {
+		g.lineStyle( Brush.THICK_STROKE * 0.9, advanced_palette.building, 1, false, null, CapsStyle.SQUARE );
+		g.moveTo( base.x, base.y );
+		g.lineTo( tip.x, tip.y );
+	}
+
+	private function drawBridge( g:Graphics, a:Point, b:Point ):Void {
+		// A short, slightly-raised deck: a dark base with a paper roadway.
+		g.lineStyle( Ward.MAIN_STREET * 1.7 + Brush.NORMAL_STROKE * 3, palette.dark, 1, false, null, CapsStyle.SQUARE );
+		g.moveTo( a.x, a.y );
+		g.lineTo( b.x, b.y );
+
+		g.lineStyle( Ward.MAIN_STREET * 1.7, palette.paper, 1, false, null, CapsStyle.SQUARE );
+		g.moveTo( a.x, a.y );
+		g.lineTo( b.x, b.y );
 	}
 
 	private function drawWater( g:Graphics, model:Model ):Void {
-		g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
-		g.beginFill( advanced_palette.water );
-		if (model.seaShape != null)
+		if (model.seaShape != null) {
+			g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
+			g.beginFill( advanced_palette.water );
 			g.drawPolygon( model.seaShape );
-		g.endFill();
+			g.endFill();
+		}
+		if (model.riverShape != null) {
+			g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
+			g.beginFill( advanced_palette.water );
+			g.drawPolygon( model.riverShape );
+			g.endFill();
+		}
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {

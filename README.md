@@ -11,7 +11,7 @@ to run this code, both available through `haxelib`.
 `sudo lime build html5`
 
 ## Example Query Arguments
-`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0&parks=2&temples=1&palette=4&sketchy=1&roofs=1&farms=8&towers=4`
+`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0&parks=2&temples=1&palette=4&sketchy=1&roofs=1&farms=8&towers=4&river=1&coast=1`
 
 ## Query Arguments
 
@@ -29,6 +29,8 @@ to run this code, both available through `haxelib`.
 | `sketchy` | `0`-`5` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. `0` (default) disables it; higher values make it progressively wavier and more displaced. Works with every palette. |
 | `roofs` | `0` / `1` | Gable-roof lines on each building: a ridge line down its long axis, plus a few short rafters perpendicular to it on one side only. Works with every palette, and combines with `sketchy`. |
 | `towers` | `0`-`4` | Wall tower shape. `0` (default) round; `1` square (flat face pointing outward); `2` hexagon (vertex pointing outward); `3` round with a few little spikes on the outward-facing side; `4` a random mix of the above per tower. |
+| `river` | `0` / `1` | `1` runs a small river across the map, beside or through the city, with gradual bends and bridges where it meets the streets. Default `0`. See below. |
+| `coast` | `0` / `1` | `1` puts the city on a coast: an open harbour front with piers reaching into the water, districts fronting the sea. Default `0`. `river=1&coast=1` makes an estuary. See below. |
 | `trans` | `0` / `1` | Transparent background instead of the palette's paper color. |
 | `menu` | `0` / `1` | Show/hide the city-size selection buttons. |
 | `tooltips` | `0` / `1` | Show/hide ward tooltips. |
@@ -40,6 +42,14 @@ When `citadel=1`, the citadel is always enclosed by the main wall rather than me
 ### Farms
 
 Farm patches get a faint tint over the whole plot plus a few furrow lines parallel to its long axis, so a field reads as a field at a glance — subtler than anything drawn inside the city itself, and independent of `sketchy`/`roofs`/palette choice. `farms` picks exactly how many countryside patches become farms (candidates need a reasonably compact shape, so the actual count is capped by how many suitable patches exist around the city).
+
+### Water (`river`, `coast`)
+
+Water is drawn as a solid, per-palette-harmonized colour (a slate blue on the default palette, muted teal/blue-grey on the earth-tone ones) so it reads clearly against the land. No buildings, farms, walls, streets, or towers are ever placed in the water.
+
+- **`river=1`** lays a gently bending river, 4–10× the width of a road, across the map. It may run alongside the city or cut through it. Where it crosses the built-up area, bridges span it; a river running beside the city gets a single bridge at its nearest approach, one running through gets several.
+- **`coast=1`** floods the seaward side of the map so a broad arc of districts fronts the water. The city wall opens along the waterfront (a quay) instead of walling off the sea, and a row of piers reaches out from the harbour.
+- **`river=1&coast=1`** aims the river at the sea so it becomes an estuary, with the city sitting at the junction.
 
 ### Palettes
 
@@ -60,7 +70,5 @@ Farm patches get a faint tint over the whole plot plus a few furrow lines parall
 * Toggle on URL for the following:
   - Citadels > 1
 * Add district coloration
-* Add ocean & bays
-* Add rivers
 * Citadel
   - Shapes of citadel building are not great
