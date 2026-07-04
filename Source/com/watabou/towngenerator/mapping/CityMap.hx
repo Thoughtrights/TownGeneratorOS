@@ -31,6 +31,16 @@ class CityMap extends Sprite {
 	public static var roofs:Bool = false;
 	private static inline var ROOF_SPACING = 2.2;
 
+	// Farm fields: a faint tint over the whole countryside patch plus a
+	// few furrow lines, subtler than anything drawn inside the city.
+	private static inline var FARM_FIELD_ALPHA = 0.1;
+	private static inline var FARM_FURROW_ALPHA = 0.3;
+	private static inline var FARM_FURROW_SPACING = 5.5;
+
+	// Tower shape: 0 round (default), 1 square, 2 hexagon, 3 spiked,
+	// 4 a random mix of the above per tower.
+	public static var towerStyle:Int = 0;
+
 	// index 0 keeps the current MOJEEB/DEFAULT look; 1-9 select one of
 	// the numbered earth-tone/architectural palette pairs.
 	public static function applyPalette( index:Int ):Void {
@@ -71,7 +81,13 @@ class CityMap extends Sprite {
 					case Cathedral:
 						drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE );
 						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard, Farm:
+					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
+						brush.setColor( g, palette.light, palette.dark );
+						for (building in patch.ward.geometry)
+						    g.drawPolygon( building );
+						drawRoofHatching( g, patch.ward.geometry, palette.dark );
+					case Farm:
+						drawFarmField( g, patch.shape, palette.medium, palette.dark );
 						brush.setColor( g, palette.light, palette.dark );
 						for (building in patch.ward.geometry)
 						    g.drawPolygon( building );
@@ -105,7 +121,8 @@ class CityMap extends Sprite {
 						}
 						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
 					case Farm:
-						brush.setColor( g, advanced_palette.grass, advanced_palette.building );
+						drawFarmField( g, patch.shape, advanced_palette.grass, advanced_palette.building );
+						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
 						for (building in patch.ward.geometry)
 							g.drawPolygon( building );
 						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
@@ -130,10 +147,10 @@ class CityMap extends Sprite {
 		addChild( walls );
 
 		if (model.wall != null)
-			drawWall( walls.graphics, model.wall, false );
+			drawWall( walls.graphics, model.wall, false, model.center );
 
 		if (model.citadel != null)
-			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true );
+			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true, model.center );
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {
@@ -144,7 +161,7 @@ class CityMap extends Sprite {
 		g.drawPolyline( road );
 	}
 
-	private function drawWall( g:Graphics, wall:CurtainWall, large:Bool ):Void {
+	private function drawWall( g:Graphics, wall:CurtainWall, large:Bool, center:Point ):Void {
 		g.lineStyle( Brush.THICK_STROKE, palette.dark );
 		g.drawPolygon( wall.shape );
 
@@ -152,14 +169,84 @@ class CityMap extends Sprite {
 			drawGate( g, wall.shape, gate );
 
 		for (t in wall.towers)
-			drawTower( g, t, Brush.THICK_STROKE * (large ? 1.5 : 1) );
+			drawTower( g, t, Brush.THICK_STROKE * (large ? 1.5 : 1), center );
 	}
 
-	private function drawTower( g:Graphics, p:Point, r:Float ) {
+	private function outwardDir( p:Point, center:Point ):Point {
+		var dx = p.x - center.x;
+		var dy = p.y - center.y;
+		var len = Math.sqrt( dx * dx + dy * dy );
+		return len < 0.001 ? new Point( 1, 0 ) : new Point( dx / len, dy / len );
+	}
+
+	private function drawTower( g:Graphics, p:Point, r:Float, center:Point ) {
+		var style = towerStyle == 4 ? Random.int( 0, 4 ) : towerStyle;
+
 		brush.noStroke( g );
 		g.beginFill( palette.dark );
-		g.drawCircle( p.x, p.y, r );
+
+		switch (style) {
+			case 1:
+				drawSquareTower( g, p, r, center );
+			case 2:
+				drawHexTower( g, p, r, center );
+			case 3:
+				drawSpikedTower( g, p, r, center );
+			default:
+				g.drawCircle( p.x, p.y, r );
+		}
+
 		g.endFill();
+	}
+
+	// A square tower with one flat face pointing directly outward, like
+	// a small bastion, rather than the classic round turret.
+	private function drawSquareTower( g:Graphics, p:Point, r:Float, center:Point ):Void {
+		var e1 = outwardDir( p, center );
+		var e2 = new Point( -e1.y, e1.x );
+		g.drawPolygon( [
+			new Point( p.x + e1.x * r + e2.x * r, p.y + e1.y * r + e2.y * r ),
+			new Point( p.x - e1.x * r + e2.x * r, p.y - e1.y * r + e2.y * r ),
+			new Point( p.x - e1.x * r - e2.x * r, p.y - e1.y * r - e2.y * r ),
+			new Point( p.x + e1.x * r - e2.x * r, p.y + e1.y * r - e2.y * r )
+		] );
+	}
+
+	// A hexagonal tower with a vertex pointing directly outward.
+	private function drawHexTower( g:Graphics, p:Point, r:Float, center:Point ):Void {
+		var e1 = outwardDir( p, center );
+		var hex = Polygon.regular( 6, r );
+		hex.rotate( Math.atan2( e1.y, e1.x ) );
+		hex.offset( p );
+		g.drawPolygon( hex );
+	}
+
+	// A round tower with a few little spikes on the side facing away
+	// from the city, like small defensive spurs.
+	private function drawSpikedTower( g:Graphics, p:Point, r:Float, center:Point ):Void {
+		g.drawCircle( p.x, p.y, r );
+
+		var e1 = outwardDir( p, center );
+		var baseAngle = Math.atan2( e1.y, e1.x );
+		var spikeLen = r * 0.9;
+		var spikeHalfWidth = r * 0.35;
+
+		for (i in -1...2) {
+			var a = baseAngle + i * 0.5;
+			var dx = Math.cos( a );
+			var dy = Math.sin( a );
+			var nx = -dy;
+			var ny = dx;
+
+			var baseX = p.x + dx * r;
+			var baseY = p.y + dy * r;
+
+			g.drawPolygon( [
+				new Point( p.x + dx * (r + spikeLen), p.y + dy * (r + spikeLen) ),
+				new Point( baseX + nx * spikeHalfWidth, baseY + ny * spikeHalfWidth ),
+				new Point( baseX - nx * spikeHalfWidth, baseY - ny * spikeHalfWidth )
+			] );
+		}
 	}
 
 	private function drawGate( g:Graphics, wall:Polygon, gate:Point ) {
@@ -196,10 +283,11 @@ class CityMap extends Sprite {
 				drawRoof( g, block, color );
 	}
 
-	private function drawRoof( g:Graphics, block:Polygon, color:Int ):Void {
+	// Finds the direction of a polygon's longest edge, as a unit vector.
+	private function longestEdgeUnitDir( poly:Polygon ):Point {
 		var dir:Point = null;
 		var bestLen = -1.0;
-		block.forEdge( function( v0, v1 ) {
+		poly.forEdge( function( v0, v1 ) {
 			var len = Point.distance( v0, v1 );
 			if (len > bestLen) {
 				bestLen = len;
@@ -207,11 +295,53 @@ class CityMap extends Sprite {
 			}
 		} );
 
+		if (dir == null)
+			return null;
 		var len = Math.sqrt( dir.x * dir.x + dir.y * dir.y );
 		if (len < 0.001)
+			return null;
+		return new Point( dir.x / len, dir.y / len );
+	}
+
+	// A faint tint over the whole countryside patch plus a few furrows
+	// parallel to its long axis, so a farm reads as a field at a glance
+	// without competing visually with the city itself.
+	private function drawFarmField( g:Graphics, shape:Polygon, fillColor:Int, lineColor:Int ):Void {
+		g.lineStyle( 0, 0, 0 );
+		g.beginFill( fillColor, FARM_FIELD_ALPHA );
+		g.drawPolygon( shape );
+		g.endFill();
+
+		var u = longestEdgeUnitDir( shape );
+		if (u == null)
 			return;
-		var ux = dir.x / len;
-		var uy = dir.y / len;
+		var ux = u.x, uy = u.y;
+		var nx = -uy, ny = ux;
+
+		var minB = Math.POSITIVE_INFINITY;
+		var maxB = Math.NEGATIVE_INFINITY;
+		for (v in shape) {
+			var b = v.x * nx + v.y * ny;
+			if (b < minB) minB = b;
+			if (b > maxB) maxB = b;
+		}
+
+		g.lineStyle( Brush.THIN_STROKE, lineColor, FARM_FURROW_ALPHA );
+		var furrow = minB + FARM_FURROW_SPACING / 2;
+		while (furrow < maxB) {
+			for (seg in clipLine( shape, nx * furrow, ny * furrow, ux, uy )) {
+				g.moveToPoint( seg.p0 );
+				g.lineToPoint( seg.p1 );
+			}
+			furrow += FARM_FURROW_SPACING;
+		}
+	}
+
+	private function drawRoof( g:Graphics, block:Polygon, color:Int ):Void {
+		var u = longestEdgeUnitDir( block );
+		if (u == null)
+			return;
+		var ux = u.x, uy = u.y;
 		// Perpendicular to the ridge, i.e. across the building's width
 		var nx = -uy;
 		var ny = ux;

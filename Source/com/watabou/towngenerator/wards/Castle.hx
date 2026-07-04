@@ -23,7 +23,10 @@ class Castle extends Ward {
 
 	override public function createGeometry() {
 		var block = patch.shape.shrinkEq( Ward.MAIN_STREET * 2 );
-		geometry = Ward.createOrthoBuilding( block, Math.sqrt( block.square ) * 4, 0.6 );
+		// A dropped sub-block surrounded by kept ones reads as a hole in
+		// the middle of the keep, so fill stays high (though not 1, to
+		// keep a little variation) to make that rare rather than impossible.
+		geometry = Ward.createOrthoBuilding( block, Math.sqrt( block.square ) * 4, 0.8 );
 	}
 
 	override public inline function getLabel() return "Castle";

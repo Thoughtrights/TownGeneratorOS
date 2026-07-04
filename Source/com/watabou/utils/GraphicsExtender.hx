@@ -7,10 +7,11 @@ using com.watabou.utils.PointExtender;
 
 class GraphicsExtender {
 
-	// When enabled, every edge drawn via drawPolygon/drawPolyline gets a
-	// small random bow at its midpoint instead of being perfectly straight,
-	// for a rougher, hand-sketched look. Independent of color palette.
-	public static var sketchy:Bool = false;
+	// Intensity level: 0 disables it. Every level above that makes edges
+	// drawn via drawPolygon/drawPolyline both wavier (more jittered points
+	// per edge) and more displaced (bigger jitter), for a rougher,
+	// hand-sketched look. Independent of color palette.
+	public static var sketchy:Int = 0;
 	public static var sketchAmount:Float = 0.3;
 
 	public static function drawPolygon( g:Graphics, p:Array<Point> ) {
@@ -31,7 +32,7 @@ class GraphicsExtender {
 	}
 
 	private static function sketchLineTo( g:Graphics, v0:Point, v1:Point ) {
-		if (!sketchy) {
+		if (sketchy <= 0) {
 			g.lineTo( v1.x, v1.y );
 			return;
 		}
@@ -46,15 +47,19 @@ class GraphicsExtender {
 
 		// Perpendicular unit vector, offset scaled a little by edge length
 		// so long walls get a gentle bow rather than an invisible wobble.
+		// Higher levels get both a bigger offset and more wobble points.
 		var nx = -dy / len;
 		var ny = dx / len;
-		var amount = Math.min( sketchAmount * 4, sketchAmount + len * 0.02 );
-		var jitter = (Random.float() - 0.5) * 2 * amount;
+		var amount = Math.min( sketchAmount * 4, sketchAmount + len * 0.02 ) * sketchy;
 
-		var mx = (v0.x + v1.x) / 2 + nx * jitter;
-		var my = (v0.y + v1.y) / 2 + ny * jitter;
-
-		g.lineTo( mx, my );
+		var segments = 1 + sketchy;
+		for (i in 1...segments) {
+			var t = i / segments;
+			var jitter = (Random.float() - 0.5) * 2 * amount;
+			var px = v0.x + dx * t + nx * jitter;
+			var py = v0.y + dy * t + ny * jitter;
+			g.lineTo( px, py );
+		}
 		g.lineTo( v1.x, v1.y );
 	}
 
