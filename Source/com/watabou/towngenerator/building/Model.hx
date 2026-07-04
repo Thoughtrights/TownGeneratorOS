@@ -31,6 +31,15 @@ class Model {
 	private var plazaNeeded		: Bool;
 	private var citadelNeeded	: Bool;
 	private var wallsNeeded		: Bool;
+	private var parksNeeded		: Int;
+
+	// Below this patch count, folding the citadel into the main wall's
+	// boundary produces a wall shape that isn't simply connected (too
+	// little room around the citadel), which breaks street pathfinding.
+	// Smaller cities fall back to the classic rim-attached citadel.
+	private static inline var MIN_PATCHES_FOR_ENCLOSED_CITADEL = 20;
+
+	private var citadelEnclosed	: Bool = false;
 
 	public static var WARDS:Array<Class<Ward>> = [
 		CraftsmenWard, CraftsmenWard, MerchantWard, CraftsmenWard, CraftsmenWard, Cathedral,
@@ -39,7 +48,7 @@ class Model {
 		Slum, CraftsmenWard, Slum, PatriciateWard, Market,
 		Slum, CraftsmenWard, CraftsmenWard, CraftsmenWard, Slum,
 		CraftsmenWard, CraftsmenWard, CraftsmenWard, MilitaryWard, Slum,
-		CraftsmenWard, Park, PatriciateWard, Market, MerchantWard];
+		CraftsmenWard, CraftsmenWard, PatriciateWard, Market, MerchantWard];
 
 	public var topology	: Topology;
 
@@ -69,7 +78,7 @@ class Model {
 	public var inputPlaza   : Bool;
 	public var inputCitadel : Bool;
 
-	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel ) {
+	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1 ) {
 
 		if (seed > 0) Random.reset( seed );
 		this.nPatches = nPatches != -1 ? nPatches : 15;
@@ -89,12 +98,17 @@ class Model {
 		} else {
 		   citadelNeeded = false;
 		}
+		parksNeeded = inputParks >= 0 ? inputParks : 0;
 
 		do try {
 			build();
 			instance = this;
-		} catch (e:Error) {
-			trace( e.message );
+		} catch (e:Dynamic) {
+			// Some layouts (e.g. a degenerate citadel/wall boundary) fail
+			// downstream as native runtime errors rather than an Error we
+			// throw ourselves; treat any failure as a cue to reroll, same
+			// as the deliberate Error cases below.
+			trace( e );
 			instance = null;
 		} while (instance == null);
 	}
@@ -134,6 +148,14 @@ class Model {
 		patches = [];
 		inner = [];
 
+		// Reset in case a previous attempt in the retry loop got as far as
+		// picking a citadel before failing later on; without this, a stale
+		// reference from a discarded layout survives into this attempt.
+		citadel = null;
+		citadelEnclosed = false;
+
+		var rimCitadelCandidate:Patch = null;
+
 		var count = 0;
 		for (r in regions) {
 			var patch = Patch.fromRegion( r );
@@ -144,8 +166,7 @@ class Model {
 				if (plazaNeeded)
 					plaza = patch;
 			} else if (count == nPatches && citadelNeeded) {
-				citadel = patch;
-				citadel.withinCity = true;
+				rimCitadelCandidate = patch;
 			}
 
 			if (count < nPatches) {
@@ -156,12 +177,43 @@ class Model {
 
 			count++;
 		}
+
+		if (citadelNeeded) {
+			citadelEnclosed = nPatches >= MIN_PATCHES_FOR_ENCLOSED_CITADEL;
+
+			// A large enough city can sometimes host the citadel as a fully
+			// interior keep, surrounded on every side by other city wards
+			// and never touching the outer wall, rather than always sitting
+			// on the rim attached to it.
+			if (citadelEnclosed && Random.bool()) {
+				var candidates = inner.filter( function( p:Patch )
+					return p != plaza && getNeighbours( p ).every( function( n:Patch ) return inner.contains( n ) ) );
+				if (candidates.length > 0) {
+					citadel = candidates.random();
+					inner.remove( citadel );
+				}
+			}
+
+			if (citadel == null && rimCitadelCandidate != null) {
+				citadel = rimCitadelCandidate;
+				citadel.withinCity = true;
+			}
+
+			if (citadel != null)
+				citadel.withinWalls = citadelEnclosed && wallsNeeded;
+		}
 	}
 
 	private function buildWalls():Void {
 		var reserved = citadel != null ? citadel.shape.copy() : [];
 
-                border = new CurtainWall( wallsNeeded, this, inner, reserved );
+		// Fold the citadel into the walled area so the main wall wraps
+		// around it instead of stopping at its inner-facing edge, leaving
+		// the castle's own wall (built below) as a secondary inner wall.
+		// Only attempted for large enough cities; see citadelEnclosed.
+		var wallPatches = citadelEnclosed ? inner.concat( [citadel] ) : inner;
+
+                border = new CurtainWall( wallsNeeded, this, wallPatches, reserved );
 		if (wallsNeeded) {
 			wall = border;
 			wall.buildTowers();
@@ -372,6 +424,14 @@ class Model {
 					patch.ward = new GateWard( this, patch );
 					unassigned.remove( patch );
 				}
+
+		// Assigning parks: an explicit count rather than leaving it to WARDS shuffle luck
+		for (i in 0...parksNeeded) {
+			if (unassigned.length == 0) break;
+			var patch = unassigned.random();
+			patch.ward = new Park( this, patch );
+			unassigned.remove( patch );
+		}
 
 		var wards = WARDS.copy();
 		// some shuffling

@@ -4,6 +4,7 @@ import openfl.system.Capabilities;
 
 import com.watabou.coogee.Game;
 import com.watabou.coogee.BitmapText.BitmapFont;
+import com.watabou.utils.GraphicsExtender;
 
 import com.watabou.towngenerator.building.Model;
 import com.watabou.towngenerator.mapping.CityMap;
@@ -15,6 +16,10 @@ class Main extends Game {
 	public function new () {
 		StateManager.pullParams();
 		StateManager.pushParams();
+
+		CityMap.applyPalette( StateManager.palette );
+		GraphicsExtender.sketchy = StateManager.sketchy;
+		CityMap.roofs = StateManager.roofs;
 
 		if (StateManager.trans == false) {
 		 	   stage.color = CityMap.palette.paper;
@@ -28,7 +33,8 @@ class Main extends Game {
 		           StateManager.seed,
 			   StateManager.wall,
 			   StateManager.plaza,
-			   StateManager.citadel ); 
+			   StateManager.citadel,
+			   StateManager.parks );
 
 		super( TownScene );
 	}

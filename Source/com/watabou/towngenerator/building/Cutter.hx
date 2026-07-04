@@ -83,7 +83,7 @@ class Cutter {
 			var halves = p.cut( slices[i].p1, slices[i].p2 );
 			p = halves[0];
 			if (halves.length == 2)
-				peel.push( halves[1] );
+				peel.push( halves[1].dechamfer() );
 		}
 
 		return peel;
