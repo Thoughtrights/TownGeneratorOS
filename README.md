@@ -11,7 +11,7 @@ to run this code, both available through `haxelib`.
 `sudo lime build html5`
 
 ## Example Query Arguments
-`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0&parks=2&palette=4`
+`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0&parks=2&palette=4&sketchy=1&roofs=1`
 
 ## Query Arguments
 
@@ -24,6 +24,8 @@ to run this code, both available through `haxelib`.
 | `citadel` | `0` / `1` | Whether the city has a citadel. Any other value picks randomly. See below for placement behavior. |
 | `parks` | `0`, `1`, `2`, ... | Exact number of parks to place in the city (not just a toggle). `0` removes them entirely. |
 | `palette` | `0`-`9` | Color palette. `0` (or omitted) is the current default look; `1`-`9` select one of nine earth-tone/architectural-diagram palettes (see below). |
+| `sketchy` | `0` / `1` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. Works with every palette. |
+| `roofs` | `0` / `1` | Gable-roof lines on each building: a ridge line down its long axis, plus a few short rafters perpendicular to it on one side only. Works with every palette, and combines with `sketchy`. |
 | `trans` | `0` / `1` | Transparent background instead of the palette's paper color. |
 | `menu` | `0` / `1` | Show/hide the city-size selection buttons. |
 | `tooltips` | `0` / `1` | Show/hide ward tooltips. |
@@ -53,9 +55,6 @@ When `citadel=1`, the citadel is always enclosed by the main wall rather than me
   - Citadels > 1
   - Gates 1+
 * Fix farms
-* Make buildings nice
-  - Slightly variable edges
-  - No triangular buildings
 * Add district coloration
 * Add ocean & bays
 * Add rivers

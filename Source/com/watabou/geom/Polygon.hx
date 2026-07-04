@@ -3,6 +3,7 @@ package com.watabou.geom;
 import openfl.geom.Point;
 import openfl.geom.Rectangle;
 import com.watabou.utils.MathUtils;
+import com.watabou.utils.Random;
 
 using com.watabou.utils.ArrayExtender;
 using com.watabou.utils.PointExtender;
@@ -539,4 +540,42 @@ abstract Polygon(Array<Point>) from Array<Point> to Array<Point> {
 
 	public static inline function circle( r=1.0 ):Polygon
 		return regular( 16, r );
+
+	// A three-sided footprint reads poorly as a building or ring segment
+	// ("is that a triangle supposed to be a house?"). Chamfering its
+	// sharpest corner turns it into a quadrilateral (trapezoid) that
+	// still occupies essentially the same space the triangle did.
+	public function dechamfer():Polygon {
+		if (this.length != 3)
+			return this;
+
+		function angleAt( i:Int ):Float {
+			var prev:Point = this[(i + 2) % 3];
+			var v:Point = this[i];
+			var next:Point = this[(i + 1) % 3];
+			var e1 = prev.subtract( v );
+			var e2 = next.subtract( v );
+			return Math.abs( Math.atan2( GeomUtils.cross( e1.x, e1.y, e2.x, e2.y ), GeomUtils.scalar( e1.x, e1.y, e2.x, e2.y ) ) );
+		}
+
+		var sharp = 0;
+		var minAngle = angleAt( 0 );
+		for (i in 1...3) {
+			var a = angleAt( i );
+			if (a < minAngle) {
+				minAngle = a;
+				sharp = i;
+			}
+		}
+
+		var prevV:Point = this[(sharp + 2) % 3];
+		var v:Point = this[sharp];
+		var nextV:Point = this[(sharp + 1) % 3];
+
+		var ratio = 0.28 + Random.float() * 0.12;
+		var cutNearPrev = GeomUtils.interpolate( v, prevV, ratio );
+		var cutNearNext = GeomUtils.interpolate( v, nextV, ratio );
+
+		return new Polygon( [prevV, cutNearPrev, cutNearNext, nextV] );
+	}
 }

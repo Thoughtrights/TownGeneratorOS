@@ -147,7 +147,7 @@ class Ward {
 		for (half in halves) {
 			if (half.square < minSq * Math.pow( 2, 4 * sizeChaos * (Random.float() - 0.5) )) {
 				if (!Random.bool( emptyProb ))
-					buildings.push( half );
+					buildings.push( half.dechamfer() );
 			} else {
 				buildings = buildings.concat( createAlleys( half, minSq, gridChaos, sizeChaos, emptyProb, half.square > minSq / (Random.float() * Random.float()) ) );
 			}
@@ -175,7 +175,7 @@ class Ward {
 			for (half in halves) {
 				if (half.square < minBlockSq * Math.pow( 2, Random.normal() * 2 - 1 )) {
 					if (Random.bool( fill ))
-						buildings.push( half );
+						buildings.push( half.dechamfer() );
 				} else {
 					buildings = buildings.concat( slice( half, c1, c2 ) );
 				}
@@ -184,7 +184,7 @@ class Ward {
 		}
 
 		if (poly.square < minBlockSq) {
-			return [poly];
+			return [poly.dechamfer()];
 		} else {
 			var c1 = poly.vector( findLongestEdge( poly ) );
 			var c2 = c1.rotate90();
