@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy.sh — sync TownGeneratorOS build to an environment target (UAT or Prod) on thoughtrights
+# deploy.sh — sync TownGeneratorOS build to an environment target (UAT or Prod) on my host, thoughtrights.com
 #
 # Usage:  ./deploy.sh [uat|prod] [--dry-run]
 #
