@@ -25,6 +25,13 @@ class CityMap extends Sprite {
 	public static var palette = Palette.MOJEEB;
 	public static var advanced_palette = AdvancedPalette.DEFAULT;
 
+	// index 0 keeps the current MOJEEB/DEFAULT look; 1-9 select one of
+	// the numbered earth-tone/architectural palette pairs.
+	public static function applyPalette( index:Int ):Void {
+		palette = Palette.fromIndex( index );
+		advanced_palette = AdvancedPalette.fromIndex( index );
+	}
+
 	private var patches	: Array<PatchView>;
 
 	private var brush	: Brush;

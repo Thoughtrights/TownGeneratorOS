@@ -16,6 +16,8 @@ class Main extends Game {
 		StateManager.pullParams();
 		StateManager.pushParams();
 
+		CityMap.applyPalette( StateManager.palette );
+
 		if (StateManager.trans == false) {
 		 	   stage.color = CityMap.palette.paper;
 		}
@@ -28,7 +30,8 @@ class Main extends Game {
 		           StateManager.seed,
 			   StateManager.wall,
 			   StateManager.plaza,
-			   StateManager.citadel ); 
+			   StateManager.citadel,
+			   StateManager.parks );
 
 		super( TownScene );
 	}

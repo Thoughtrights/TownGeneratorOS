@@ -17,6 +17,8 @@ class StateManager {
 	private static inline var TRANS = "trans";
 	private static inline var MENU = "menu";
 	private static inline var TOOLTIPS = "tooltips";
+	private static inline var PARKS = "parks";
+	private static inline var PALETTE = "palette";
 
 	public static var size	: Int = 15;
 	public static var seed	: Int = -1;
@@ -26,6 +28,8 @@ class StateManager {
 	public static var trans : Bool= false;
 	public static var menu  : Bool= true;
 	public static var tooltips : Bool= true;
+	public static var parks : Int = 1;
+	public static var palette : Int = 0;
 
 	public static function pullParams() {
 		#if html5
@@ -95,6 +99,14 @@ class StateManager {
 			      tooltips = false;
 			   }
 		        }
+			// Number of parks to place, not just a 0/1 toggle
+			var parks1 = Std.parseInt( params.get( PARKS ) );
+			if (parks1 != null) parks = (parks1 >= 0 ? parks1 : 0);
+
+			// 0 (or omitted) keeps the current default look; 1-9 pick one
+			// of the numbered earth-tone/architectural palettes.
+			var palette1 = Std.parseInt( params.get( PALETTE ) );
+			if (palette1 != null) palette = (palette1 >= 0 && palette1 <= 9) ? palette1 : 0;
 		}
 		#end
 	}
@@ -133,10 +145,10 @@ class StateManager {
 		#if html5
 		var loc = Browser.location;
 		var search1 = loc.search;
-		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg';
+		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg&$PARKS=$parks&$PALETTE=$palette';
 		// The next line is not entirely correct, it doesn't take into account hashes
 		var url = search1 != "" ? loc.href.split( search1 ).join( search2 ) : loc.href + search2;
-		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg}, getStateName(), url );
+		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg, parks: parks, palette: palette}, getStateName(), url );
 		#end
 	}
 
