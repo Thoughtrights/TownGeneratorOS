@@ -59,7 +59,6 @@ Farm patches get a faint tint over the whole plot plus a few furrow lines parall
 
 * Toggle on URL for the following:
   - Citadels > 1
-  - Gates 1+
 * Add district coloration
 * Add ocean & bays
 * Add rivers
