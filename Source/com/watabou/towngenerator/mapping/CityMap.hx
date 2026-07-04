@@ -61,6 +61,24 @@ class CityMap extends Sprite {
 
 		var model = Model.instance;
 
+		// Water sits underneath everything else, then a paper "land mask"
+		// over every land patch so the water only shows seaward of the
+		// actual patch boundary (a natural shoreline) and never bleeds up
+		// through the gaps between shore-side buildings.
+		if (model.seaShape != null) {
+			var waterView = new Shape();
+			drawWater( waterView.graphics, model );
+			addChild( waterView );
+
+			var landView = new Shape();
+			landView.graphics.lineStyle( 0, 0, 0 );
+			landView.graphics.beginFill( palette.paper );
+			for (patch in model.patches)
+				landView.graphics.drawPolygon( patch.shape );
+			landView.graphics.endFill();
+			addChild( landView );
+		}
+
 		for (road in model.roads) {
 			var roadView = new Shape();
 			drawRoad( roadView.graphics, road );
@@ -153,6 +171,14 @@ class CityMap extends Sprite {
 			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true, model.center );
 	}
 
+	private function drawWater( g:Graphics, model:Model ):Void {
+		g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
+		g.beginFill( advanced_palette.water );
+		if (model.seaShape != null)
+			g.drawPolygon( model.seaShape );
+		g.endFill();
+	}
+
 	private function drawRoad( g:Graphics, road:Street ):Void {
 		g.lineStyle( Ward.MAIN_STREET + Brush.NORMAL_STROKE, palette.medium, false, null, CapsStyle.NONE );
 		g.drawPolyline( road );
@@ -163,7 +189,16 @@ class CityMap extends Sprite {
 
 	private function drawWall( g:Graphics, wall:CurtainWall, large:Bool, center:Point ):Void {
 		g.lineStyle( Brush.THICK_STROKE, palette.dark );
-		g.drawPolygon( wall.shape );
+
+		// Draw only the enabled segments, so stretches opened for a harbour
+		// quay or a river water-gate leave a gap instead of a solid wall.
+		var shape = wall.shape;
+		var len = shape.length;
+		for (i in 0...len)
+			if (wall.segments[i]) {
+				g.moveToPoint( shape[i] );
+				g.lineToPoint( shape[(i + 1) % len] );
+			}
 
 		for (gate in wall.gates)
 			drawGate( g, wall.shape, gate );

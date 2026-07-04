@@ -37,7 +37,9 @@ class Main extends Game {
 			   StateManager.citadel,
 			   StateManager.parks,
 			   StateManager.farms,
-			   StateManager.temples );
+			   StateManager.temples,
+			   StateManager.river,
+			   StateManager.coast );
 
 		super( TownScene );
 	}

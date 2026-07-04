@@ -33,7 +33,7 @@ class AdvancedPalette {
 	}
 
 	public static var DEFAULT   = new AdvancedPalette( 0xB0B78D, 0x8DB7A9,
-	       	      	  	      	  		   0x3199D6, 0x96D0F2, 0x0B5077,
+	       	      	  	      	  		   0x7FA5B8, 0xAFcada, 0x3C5A68,
 							   0x747677, 0xA4A7A8, 0x627A82,
 							   0xB7A98D, 0xA3916E, 0x4F453B  );
 

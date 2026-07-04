@@ -34,6 +34,13 @@ class Model {
 	private var parksNeeded		: Int;
 	private var farmsNeeded		: Int;
 	private var templesNeeded	: Bool;
+	private var riverNeeded		: Bool;
+	private var coastNeeded		: Bool;
+
+	// Water geometry, filled by buildWater() and consumed by the renderer.
+	public var seaShape		: Polygon;		// filled sea polygon (coast)
+	private var coastDir	: Point;		// unit vector pointing out to sea
+	private var shoreDist	: Float = 0;	// projection of the shoreline along coastDir
 
 	// Below this patch count, folding the citadel into the main wall's
 	// boundary produces a wall shape that isn't simply connected (too
@@ -80,7 +87,7 @@ class Model {
 	public var inputPlaza   : Bool;
 	public var inputCitadel : Bool;
 
-	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1, inputFarms=6, inputTemples=true ) {
+	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1, inputFarms=6, inputTemples=true, inputRiver=false, inputCoast=false ) {
 
 		if (seed > 0) Random.reset( seed );
 		this.nPatches = nPatches != -1 ? nPatches : 15;
@@ -103,6 +110,8 @@ class Model {
 		parksNeeded = inputParks >= 0 ? inputParks : 0;
 		farmsNeeded = inputFarms >= 0 ? inputFarms : 0;
 		templesNeeded = inputTemples == true;
+		riverNeeded = inputRiver == true;
+		coastNeeded = inputCoast == true;
 
 		do try {
 			build();
@@ -122,6 +131,7 @@ class Model {
 		roads = [];
 
 		buildPatches();
+		buildWater();
 		optimizeJunctions();
 		buildWalls();
 		buildStreets();
@@ -208,6 +218,124 @@ class Model {
 		}
 	}
 
+	private function buildWater():Void {
+		waterbody = [];
+		seaShape = null;
+		coastDir = null;
+
+		if (coastNeeded)
+			buildCoast();
+	}
+
+	// Projection of a point onto the sea-facing axis, measured from the
+	// city centre. Larger = further out to sea.
+	private inline function seaProj( p:Point ):Float
+		return (p.x - center.x) * coastDir.x + (p.y - center.y) * coastDir.y;
+
+	// True if a point lies in open water.
+	public function isWater( p:Point ):Bool
+		return coastDir != null && seaProj( p ) > shoreDist;
+
+	private function buildCoast():Void {
+		// A random direction pointing out to sea
+		var a = Random.float() * 2 * Math.PI;
+		coastDir = new Point( Math.cos( a ), Math.sin( a ) );
+
+		// Overall city radius, used both to place the shoreline and to size
+		// the (finite) sea polygon to the city rather than to an absolute
+		// distance the renderer can't handle.
+		var cr = 0.0;
+		for (p in inner)
+			for (v in p.shape) {
+				var d = Point.distance( v, center );
+				if (d > cr) cr = d;
+			}
+
+		// Put the shoreline partway across the seaward side of the city so a
+		// broad arc of districts fronts the water. The land mask keeps the
+		// water from bleeding between kept buildings, so this can come fairly
+		// far in without drowning the built-up gaps.
+		shoreDist = cr * (0.58 + Random.float() * 0.12);
+
+		// Flood every patch seaward of the shoreline. The plaza and citadel
+		// are always kept dry so the city core stays intact.
+		var flooded:Array<Patch> = [];
+		for (p in patches)
+			if (p != plaza && p != citadel && seaProj( p.shape.centroid ) > shoreDist) {
+				p.water = true;
+				flooded.push( p );
+			}
+
+		// Remove flooded patches so nothing downstream is built on them
+		for (p in flooded) {
+			patches.remove( p );
+			inner.remove( p );
+		}
+		waterbody = waterbody.concat( flooded );
+
+		buildSeaShape( cr );
+	}
+
+	// A filled polygon covering the seaward side of the shoreline, with a
+	// gently wavy coast so it doesn't read as a ruled line. Sized to a few
+	// city radii — large enough to run off-screen, but not so large that the
+	// html5 renderer treats the shape as an oversized (and unrenderable) box.
+	private function buildSeaShape( cr:Float ):Void {
+		if (cr <= 0) cr = 100;
+		var shoreVec = coastDir.rotate90();				// along the shore
+		var base = new Point( center.x + coastDir.x * shoreDist, center.y + coastDir.y * shoreDist );
+
+		var span = cr * 5;		// along-shore half-length
+		var far = cr * 5;		// how far out to sea to fill
+		var wob = cr * 0.16;	// shore wobble amplitude
+		var n = 40;
+		var phase = Random.float() * Math.PI * 2;
+
+		var pts:Array<Point> = [];
+		for (i in 0...n + 1) {
+			var t = -span + (2 * span) * i / n;
+			// gentle multi-frequency wobble, biased slightly landward so the
+			// sea always reaches the flooded patches (wards drawn on top hide
+			// any overlap onto land)
+			var wobble = Math.sin( phase + t / cr * 0.9 ) * wob + Math.sin( phase * 2.3 + t / cr * 2.4 ) * wob * 0.4 - wob * 0.35;
+			pts.push( new Point(
+				base.x + shoreVec.x * t + coastDir.x * wobble,
+				base.y + shoreVec.y * t + coastDir.y * wobble
+			) );
+		}
+
+		var poly = pts.copy();
+		poly.push( new Point( pts[n].x + coastDir.x * far, pts[n].y + coastDir.y * far ) );
+		poly.push( new Point( pts[0].x + coastDir.x * far, pts[0].y + coastDir.y * far ) );
+		seaShape = new Polygon( poly );
+	}
+
+	// Open the wall where it runs along water (a quay / water-gate) rather
+	// than walling off the harbour. Relies on CurtainWall.segments, which
+	// tower-building and rendering already respect.
+	private function openWaterWallSegments( w:CurtainWall ):Void {
+		if (coastDir == null)
+			return;
+
+		var shape = w.shape;
+		var len = shape.length;
+		for (i in 0...len) {
+			var v0 = shape[i];
+			var v1 = shape[(i + 1) % len];
+			var mid = new Point( (v0.x + v1.x) / 2, (v0.y + v1.y) / 2 );
+
+			// Open the seaward-facing arc of the wall (a harbour quay): the
+			// edge's outward normal points roughly out to sea and it sits on
+			// the seaward side of the city. A thin beach may lie between the
+			// quay and the waterline, so we key off facing, not a probe point.
+			var out = mid.subtract( center );
+			out.normalize( 1 );
+			var facing = out.x * coastDir.x + out.y * coastDir.y;
+			if (facing > 0.45 && seaProj( mid ) > shoreDist * 0.5)
+				w.segments[i] = false;
+		}
+	}
+
 	private function buildWalls():Void {
 		var reserved = citadel != null ? citadel.shape.copy() : [];
 
@@ -218,6 +346,8 @@ class Model {
 		var wallPatches = citadelEnclosed ? inner.concat( [citadel] ) : inner;
 
                 border = new CurtainWall( wallsNeeded, this, wallPatches, reserved );
+		if (coastNeeded || riverNeeded)
+			openWaterWallSegments( border );
 		if (wallsNeeded) {
 			wall = border;
 			wall.buildTowers();

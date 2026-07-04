@@ -24,6 +24,8 @@ class StateManager {
 	private static inline var FARMS = "farms";
 	private static inline var TOWERS = "towers";
 	private static inline var TEMPLES = "temples";
+	private static inline var RIVER = "river";
+	private static inline var COAST = "coast";
 
 	public static var size	: Int = 15;
 	public static var seed	: Int = -1;
@@ -40,6 +42,8 @@ class StateManager {
 	public static var farms : Int = 6;
 	public static var towers : Int = 0;
 	public static var temples : Bool = true;
+	public static var river : Bool = false;
+	public static var coast : Bool = false;
 
 	public static function pullParams() {
 		#if html5
@@ -144,6 +148,15 @@ class StateManager {
 			// this just makes its appearance guaranteed and toggleable.
 			var temples1 = Std.parseInt( params.get( TEMPLES ) );
 			if (temples1 != null) temples = (temples1 == 1);
+
+			// A river running beside or through the city. Default off.
+			var river1 = Std.parseInt( params.get( RIVER ) );
+			if (river1 != null) river = (river1 == 1);
+
+			// The city sits on a coast/sea. Default off. Combined with
+			// river=1 this makes an estuary.
+			var coast1 = Std.parseInt( params.get( COAST ) );
+			if (coast1 != null) coast = (coast1 == 1);
 		}
 		#end
 	}
@@ -186,14 +199,22 @@ class StateManager {
 		if (temples == true) {
 		   	templesArg = 1;
 		}
+		var riverArg = 0;
+		if (river == true) {
+		   	riverArg = 1;
+		}
+		var coastArg = 0;
+		if (coast == true) {
+		   	coastArg = 1;
+		}
 
 		#if html5
 		var loc = Browser.location;
 		var search1 = loc.search;
-		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg&$PARKS=$parks&$PALETTE=$palette&$SKETCHY=$sketchy&$ROOFS=$roofsArg&$FARMS=$farms&$TOWERS=$towers&$TEMPLES=$templesArg';
+		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg&$PARKS=$parks&$PALETTE=$palette&$SKETCHY=$sketchy&$ROOFS=$roofsArg&$FARMS=$farms&$TOWERS=$towers&$TEMPLES=$templesArg&$RIVER=$riverArg&$COAST=$coastArg';
 		// The next line is not entirely correct, it doesn't take into account hashes
 		var url = search1 != "" ? loc.href.split( search1 ).join( search2 ) : loc.href + search2;
-		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg, parks: parks, palette: palette, sketchy: sketchy, roofs: roofsArg, farms: farms, towers: towers, temples: templesArg}, getStateName(), url );
+		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg, parks: parks, palette: palette, sketchy: sketchy, roofs: roofsArg, farms: farms, towers: towers, temples: templesArg, river: riverArg, coast: coastArg}, getStateName(), url );
 		#end
 	}
 
