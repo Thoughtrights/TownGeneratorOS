@@ -14,6 +14,7 @@ import com.watabou.geom.GeomUtils;
 import com.watabou.towngenerator.wards.*;
 import com.watabou.towngenerator.building.CurtainWall;
 import com.watabou.towngenerator.building.Model;
+import com.watabou.towngenerator.building.Patch;
 
 using com.watabou.utils.ArrayExtender;
 using com.watabou.utils.GraphicsExtender;
@@ -60,23 +61,29 @@ class CityMap extends Sprite {
 		brush_advanced = new BrushAdvanced( advanced_palette );
 
 		var model = Model.instance;
+		var hasWater = model.seaShape != null || model.riverShape != null;
 
-		// Water sits underneath everything else, then a paper "land mask"
-		// over every land patch so the water only shows seaward of the
-		// actual patch boundary (a natural shoreline) and never bleeds up
-		// through the gaps between shore-side buildings.
-		if (model.seaShape != null || model.riverShape != null) {
+		patches = [];
+
+		function renderPatch( patch:Patch ):Void {
+			var patchView = new PatchView( patch );
+			if (drawWard( patchView.graphics, patch ))
+				addChild( patchView );
+			patches.push( patchView );
+		}
+
+		// Under the water: farmland and parks — open ground the water is
+		// allowed to cut off. Then the water itself.
+		if (hasWater) {
+			for (patch in model.patches) {
+				var c = Type.getClass( patch.ward );
+				if (c == Farm || c == Park)
+					renderPatch( patch );
+			}
+
 			var waterView = new Shape();
 			drawWater( waterView.graphics, model );
 			addChild( waterView );
-
-			var landView = new Shape();
-			landView.graphics.lineStyle( 0, 0, 0 );
-			landView.graphics.beginFill( palette.paper );
-			for (patch in model.patches)
-				landView.graphics.drawPolygon( patch.shape );
-			landView.graphics.endFill();
-			addChild( landView );
 		}
 
 		for (road in model.roads) {
@@ -85,77 +92,24 @@ class CityMap extends Sprite {
 			addChild( roadView );
 		}
 
-		patches = [];
+		// Bridges span the water, drawn under the buildings so buildings on
+		// the banks sit over the deck ends.
+		if (model.bridges != null && model.bridges.length > 0) {
+			var bridgeView = new Shape();
+			for (bridge in model.bridges)
+				drawBridge( bridgeView.graphics, bridge[0], bridge[1] );
+			addChild( bridgeView );
+		}
+
+		// Over the water: the buildings, which must never overlap it. (With
+		// no water, this pass draws everything, preserving the original look.)
 		for (patch in model.patches) {
-			var patchView = new PatchView( patch );
-			var patchDrawn = true;
-
-                        if (palette_type == 'NORMAL'){
-				var g = patchView.graphics;
-				switch (Type.getClass( patch.ward )) {
-					case Castle:
-						drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Cathedral:
-						drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
-						brush.setColor( g, palette.light, palette.dark );
-						for (building in patch.ward.geometry)
-						    g.drawPolygon( building );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Farm:
-						drawFarmField( g, patch.shape, palette.medium, palette.dark );
-						brush.setColor( g, palette.light, palette.dark );
-						for (building in patch.ward.geometry)
-						    g.drawPolygon( building );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Park:
-						brush.setColor( g, palette.medium );
-						for (grove in patch.ward.geometry)
-							g.drawPolygon( grove );
-					default:
-						patchDrawn = false;
-				}
+			if (hasWater) {
+				var c = Type.getClass( patch.ward );
+				if (c == Farm || c == Park)
+					continue;
 			}
-			else if (palette_type == 'ADVANCED'){
-				var g = patchView.graphics;
-				switch (Type.getClass( patch.ward )) {
-					case Castle:
-						drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Cathedral:
-						drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
-						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-						for (building in patch.ward.geometry) {
-						    if (Random.bool(0.8)) {
-							brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-						    } else {
-							brush.setColor( g, advanced_palette.plot_dark, advanced_palette.building );
-						    }
-						    g.drawPolygon( building );
-						}
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Farm:
-						drawFarmField( g, patch.shape, advanced_palette.grass, advanced_palette.building );
-						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-						for (building in patch.ward.geometry)
-							g.drawPolygon( building );
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Park:
-						brush.setColor( g, advanced_palette.grass );
-						for (grove in patch.ward.geometry)
-							g.drawPolygon( grove );
-					default:
-						patchDrawn = false;
-				}
-			}
-
-			patches.push( patchView );
-			if (patchDrawn)
-				addChild( patchView );
+			renderPatch( patch );
 		}
 
 		for (patch in patches)
@@ -169,50 +123,122 @@ class CityMap extends Sprite {
 
 		if (model.citadel != null)
 			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true, model.center );
-
-		// Piers and bridges sit on top of the water
-		if ((model.docks != null && model.docks.length > 0) ||
-		    (model.bridges != null && model.bridges.length > 0)) {
-			var deckView = new Shape();
-			if (model.docks != null)
-				for (dock in model.docks)
-					drawPier( deckView.graphics, dock[0], dock[1] );
-			if (model.bridges != null)
-				for (bridge in model.bridges)
-					drawBridge( deckView.graphics, bridge[0], bridge[1] );
-			addChild( deckView );
-		}
 	}
 
-	private function drawPier( g:Graphics, base:Point, tip:Point ):Void {
-		g.lineStyle( Brush.THICK_STROKE * 0.9, advanced_palette.building, 1, false, null, CapsStyle.SQUARE );
-		g.moveTo( base.x, base.y );
-		g.lineTo( tip.x, tip.y );
+	// Draws one patch's ward. Returns false for wards with nothing to draw.
+	private function drawWard( g:Graphics, patch:Patch ):Bool {
+		var patchDrawn = true;
+
+		if (palette_type == 'NORMAL') {
+			switch (Type.getClass( patch.ward )) {
+				case Castle:
+					drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
+					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+				case Cathedral:
+					drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE );
+					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
+					brush.setColor( g, palette.light, palette.dark );
+					for (building in patch.ward.geometry)
+					    g.drawPolygon( building );
+					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+				case Farm:
+					drawFarmField( g, patch.shape, palette.medium, palette.dark );
+					brush.setColor( g, palette.light, palette.dark );
+					for (building in patch.ward.geometry)
+					    g.drawPolygon( building );
+					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+				case Park:
+					brush.setColor( g, palette.medium );
+					for (grove in patch.ward.geometry)
+						g.drawPolygon( grove );
+				default:
+					patchDrawn = false;
+			}
+		}
+		else if (palette_type == 'ADVANCED') {
+			switch (Type.getClass( patch.ward )) {
+				case Castle:
+					drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
+					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+				case Cathedral:
+					drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
+					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
+					brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+					for (building in patch.ward.geometry) {
+					    if (Random.bool(0.8)) {
+						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+					    } else {
+						brush.setColor( g, advanced_palette.plot_dark, advanced_palette.building );
+					    }
+					    g.drawPolygon( building );
+					}
+					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+				case Farm:
+					drawFarmField( g, patch.shape, advanced_palette.grass, advanced_palette.building );
+					brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+					for (building in patch.ward.geometry)
+						g.drawPolygon( building );
+					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+				case Park:
+					brush.setColor( g, advanced_palette.grass );
+					for (grove in patch.ward.geometry)
+						g.drawPolygon( grove );
+				default:
+					patchDrawn = false;
+			}
+		}
+
+		return patchDrawn;
 	}
 
 	private function drawBridge( g:Graphics, a:Point, b:Point ):Void {
-		// A short, slightly-raised deck: a dark base with a paper roadway.
-		g.lineStyle( Ward.MAIN_STREET * 1.7 + Brush.NORMAL_STROKE * 3, palette.dark, 1, false, null, CapsStyle.SQUARE );
-		g.moveTo( a.x, a.y );
-		g.lineTo( b.x, b.y );
-
+		// Just a paper-coloured deck, no outline: buildings drawn on top of
+		// it hide the ends, so it reads as the road simply carrying across.
 		g.lineStyle( Ward.MAIN_STREET * 1.7, palette.paper, 1, false, null, CapsStyle.SQUARE );
 		g.moveTo( a.x, a.y );
 		g.lineTo( b.x, b.y );
 	}
 
 	private function drawWater( g:Graphics, model:Model ):Void {
-		if (model.seaShape != null) {
-			g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
-			g.beginFill( advanced_palette.water );
+		// Fill sea and river with the same colour and no outline, so where
+		// they meet they read as a single merged surface.
+		g.lineStyle( 0, 0, 0 );
+		g.beginFill( advanced_palette.water );
+		if (model.seaShape != null)
 			g.drawPolygon( model.seaShape );
-			g.endFill();
-		}
-		if (model.riverShape != null) {
-			g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
-			g.beginFill( advanced_palette.water );
+		if (model.riverShape != null)
 			g.drawPolygon( model.riverShape );
-			g.endFill();
+		g.endFill();
+
+		// Then a shoreline stroke only where water meets land — skipping the
+		// stretch where the river runs into the sea so no line crosses the
+		// open water.
+		g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
+
+		if (model.seaShoreLine != null) {
+			var sl = model.seaShoreLine;
+			for (i in 0...sl.length - 1) {
+				var mid = new Point( (sl[i].x + sl[i + 1].x) / 2, (sl[i].y + sl[i + 1].y) / 2 );
+				if (model.inRiver( mid )) continue;
+				g.moveToPoint( sl[i] );
+				g.lineToPoint( sl[i + 1] );
+			}
+		}
+
+		if (model.riverShape != null) {
+			var rs = model.riverShape;
+			var n = rs.length;
+			for (i in 0...n) {
+				var v0 = rs[i];
+				var v1 = rs[(i + 1) % n];
+				var mid = new Point( (v0.x + v1.x) / 2, (v0.y + v1.y) / 2 );
+				// skip the bank stretches that lie under the sea
+				if (model.inSea( mid )) continue;
+				g.moveToPoint( v0 );
+				g.lineToPoint( v1 );
+			}
 		}
 	}
 

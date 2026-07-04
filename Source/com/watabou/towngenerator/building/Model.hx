@@ -40,6 +40,7 @@ class Model {
 
 	// Water geometry, filled by buildWater() and consumed by the renderer.
 	public var seaShape		: Polygon;		// filled sea polygon (coast)
+	public var seaShoreLine	: Array<Point>;	// just the wavy shoreline of the sea
 	public var riverShape	: Polygon;		// filled river ribbon (river)
 	private var coastDir	: Point;		// unit vector pointing out to sea
 	private var shoreDist	: Float = 0;	// projection of the shoreline along coastDir
@@ -228,6 +229,7 @@ class Model {
 	private function buildWater():Void {
 		waterbody = [];
 		seaShape = null;
+		seaShoreLine = null;
 		riverShape = null;
 		coastDir = null;
 		riverPath = null;
@@ -253,9 +255,16 @@ class Model {
 			buildCoast( cityR );
 		if (riverNeeded)
 			buildRiver( cityR );
-
-		buildDocks( cityR );
 	}
+
+	// True if a point is under the sea / under the river, individually. Used
+	// by the renderer to stroke only land-facing water edges so the two
+	// bodies read as one merged surface where they meet.
+	public function inSea( p:Point ):Bool
+		return coastDir != null && seaProj( p ) > shoreDist;
+
+	public function inRiver( p:Point ):Bool
+		return riverPath != null && distToPath( p, riverPath ) < riverHalf;
 
 	// A cluster of short piers reaching into the water near the city — its
 	// harbour. Anchored to shore-facing land vertices closest to the centre
@@ -330,12 +339,20 @@ class Model {
 		// far in without drowning the built-up gaps.
 		shoreDist = cr * (0.58 + Random.float() * 0.12);
 
-		// Flood every patch seaward of the shoreline. The plaza and citadel
-		// are always kept dry so the city core stays intact.
+		// Flood every patch that reaches past the shoreline (any vertex), so
+		// no building patch straddles the water. The plaza and citadel are
+		// always kept dry so the city core stays intact. The small margin
+		// covers the shoreline's cosmetic wobble.
+		var margin = cr * 0.12;
 		var flooded:Array<Patch> = [];
 		for (p in patches)
-			if (p != plaza && p != citadel && seaProj( p.shape.centroid ) > shoreDist)
-				flooded.push( p );
+			if (p != plaza && p != citadel) {
+				var wet = false;
+				for (v in p.shape)
+					if (seaProj( v ) > shoreDist - margin) { wet = true; break; }
+				if (wet)
+					flooded.push( p );
+			}
 		for (p in flooded)
 			floodPatch( p );
 
@@ -353,7 +370,8 @@ class Model {
 
 		var span = cr * 5;		// along-shore half-length
 		var far = cr * 5;		// how far out to sea to fill
-		var wob = cr * 0.16;	// shore wobble amplitude
+		var wob = cr * 0.08;	// shore wobble amplitude (kept small so the
+								// flood margin can reliably cover it)
 		var n = 40;
 		var phase = Random.float() * Math.PI * 2;
 
@@ -369,6 +387,8 @@ class Model {
 				base.y + shoreVec.y * t + coastDir.y * wobble
 			) );
 		}
+
+		seaShoreLine = pts;
 
 		var poly = pts.copy();
 		poly.push( new Point( pts[n].x + coastDir.x * far, pts[n].y + coastDir.y * far ) );
@@ -423,7 +443,15 @@ class Model {
 		var flowA = coastDir != null ? Math.atan2( coastDir.y, coastDir.x ) + (Random.float() - 0.5) * 0.6 : Random.float() * 2 * Math.PI;
 		var dir = new Point( Math.cos( flowA ), Math.sin( flowA ) );
 		var perp = dir.rotate90();
-		var offset = coastDir != null ? (Random.float() - 0.5) * cr * 0.6 : (Random.float() - 0.5) * 1.7 * cr;
+		// The river runs to one side of the city — grazing its edge or well
+		// beside it — rather than through the dead centre (which would split
+		// the city around the plaza with no way to bridge the halves). A
+		// road that meets it gets a bridge. With a coast it stays nearer the
+		// city so the estuary reads at the junction.
+		var side = Random.bool() ? 1.0 : -1.0;
+		var offset = coastDir != null
+			? side * (0.4 + Random.float() * 0.35) * cr
+			: side * (0.6 + Random.float() * 0.5) * cr;
 
 		var thru = new Point( center.x + perp.x * offset, center.y + perp.y * offset );
 
@@ -457,11 +485,18 @@ class Model {
 			dense = smoothOpen( dense );
 		riverPath = dense;
 
-		// Flood the corridor: any patch whose centroid is near the centreline.
+		// Flood the corridor: any patch that so much as touches it, so no
+		// building patch is left straddling (and drawn over) the water.
 		var flooded:Array<Patch> = [];
 		for (p in patches)
-			if (p != plaza && p != citadel && distToPath( p.shape.centroid, riverPath ) < clearHalf)
-				flooded.push( p );
+			if (p != plaza && p != citadel) {
+				var touches = distToPath( p.shape.centroid, riverPath ) < clearHalf;
+				if (!touches)
+					for (v in p.shape)
+						if (distToPath( v, riverPath ) < clearHalf) { touches = true; break; }
+				if (touches)
+					flooded.push( p );
+			}
 		for (p in flooded)
 			floodPatch( p );
 
@@ -481,53 +516,43 @@ class Model {
 		return best;
 	}
 
-	// A short deck straight across the river at a crossing point.
-	private function makeBridge( ci:Int ):Void {
+	// Link the two banks at a crossing so a street may bridge the river here.
+	// No deck is drawn yet — that happens once the streets actually exist.
+	private function linkCrossing( ci:Int ):Void {
 		var m = riverPath.length;
 		var c = riverPath[ci];
 		var a1 = riverPath[ci > 0 ? ci - 1 : 0];
 		var a2 = riverPath[ci < m - 1 ? ci + 1 : m - 1];
 		var perp = new Point( -(a2.y - a1.y), a2.x - a1.x );
-		perp.normalize( riverHalf + Math.max( 4, cityR * 0.03 ) );
+		perp.normalize( riverHalf + Math.max( 4, cityR * 0.04 ) );
 
-		var a = new Point( c.x + perp.x, c.y + perp.y );
-		var b = new Point( c.x - perp.x, c.y - perp.y );
-		bridges.push( [a, b] );
-
-		// Best-effort: link the nearest street nodes on each bank so a road
-		// may actually use the crossing (harmless if unused).
-		var na = nearestLandVertex( a, riverHalf * 2 );
-		var nb = nearestLandVertex( b, riverHalf * 2 );
+		var na = nearestLandVertex( new Point( c.x + perp.x, c.y + perp.y ), riverHalf * 3 );
+		var nb = nearestLandVertex( new Point( c.x - perp.x, c.y - perp.y ), riverHalf * 3 );
 		if (na != null && nb != null)
 			topology.addLink( na, nb );
 	}
 
-	// Bridge the river where it runs through / past the city. A river cutting
-	// through the built area gets several crossings; one running alongside
-	// gets a single bridge at its closest approach.
-	private function addRiverBridges():Void {
-		bridges = [];
+	// Offer the street network crossings where the river runs through / past
+	// the city, so roads can span it. A river through the built area gets
+	// several, one running alongside gets one at its closest approach.
+	private function linkRiverCrossings():Void {
 		if (riverPath == null) return;
 
 		var m = riverPath.length;
-
-		// The stretch of river actually inside the built-up area
 		var first = -1, last = -1, nearest = 0;
 		var nearestD = Math.POSITIVE_INFINITY;
 		for (i in 0...m) {
 			var d = Point.distance( riverPath[i], center );
 			if (d < nearestD) { nearestD = d; nearest = i; }
-			if (d < cityR * 0.9) {
+			if (d < cityR * 1.05) {
 				if (first < 0) first = i;
 				last = i;
 			}
 		}
 
 		if (first < 0 || last <= first) {
-			// Runs beside the city: a single bridge at the closest approach,
-			// but only if it comes reasonably near.
 			if (nearestD < cityR * 1.6)
-				makeBridge( nearest );
+				linkCrossing( nearest );
 			return;
 		}
 
@@ -535,10 +560,62 @@ class Model {
 		for (i in first...last)
 			spanLen += Point.distance( riverPath[i], riverPath[i + 1] );
 		var count = 1 + Std.int( spanLen / (cityR * 0.7) );
-		if (count > 3) count = 3;
+		if (count > 4) count = 4;
 
 		for (b in 0...count)
-			makeBridge( first + Std.int( (last - first) * (b + 0.5) / count ) );
+			linkCrossing( first + Std.int( (last - first) * (b + 0.5) / count ) );
+	}
+
+	// Once the streets exist, drop a bridge deck wherever a road actually
+	// crosses the river — so bridges only appear where there's a road, and
+	// each deck follows the road across the water.
+	public function placeBridges():Void {
+		bridges = [];
+		if (riverPath == null || arteries == null) return;
+
+		var margin = Math.max( 4, cityR * 0.04 );
+
+		for (a in arteries)
+			for (i in 0...a.length - 1) {
+				var s0 = a[i];
+				var s1 = a[i + 1];
+				var sdx = s1.x - s0.x;
+				var sdy = s1.y - s0.y;
+
+				// Does this road segment cross the river centreline?
+				for (j in 0...riverPath.length - 1) {
+					var r0 = riverPath[j];
+					var r1 = riverPath[j + 1];
+					var t = GeomUtils.intersectLines( s0.x, s0.y, sdx, sdy, r0.x, r0.y, r1.x - r0.x, r1.y - r0.y );
+					if (t == null || t.x < 0 || t.x > 1 || t.y < 0 || t.y > 1)
+						continue;
+
+					var c = new Point( s0.x + sdx * t.x, s0.y + sdy * t.x );
+
+					var dup = false;
+					for (br in bridges) {
+						var bm = new Point( (br[0].x + br[1].x) / 2, (br[0].y + br[1].y) / 2 );
+						if (Point.distance( bm, c ) < riverHalf * 1.5) { dup = true; break; }
+					}
+					if (dup) continue;
+
+					// Deck runs along the road, spanning from bank to bank.
+					var dir = new Point( sdx, sdy );
+					dir.normalize( 1 );
+					var fwd = 0.0;
+					while (fwd < cityR && inRiver( new Point( c.x + dir.x * fwd, c.y + dir.y * fwd ) )) fwd += 1;
+					var back = 0.0;
+					while (back < cityR && inRiver( new Point( c.x - dir.x * back, c.y - dir.y * back ) )) back += 1;
+					fwd += margin;
+					back += margin;
+
+					bridges.push( [
+						new Point( c.x + dir.x * fwd, c.y + dir.y * fwd ),
+						new Point( c.x - dir.x * back, c.y - dir.y * back )
+					] );
+					break;
+				}
+			}
 	}
 
 	// Turns a polyline into a closed ribbon polygon of the given half-width
@@ -591,6 +668,14 @@ class Model {
 			// Open where the wall crosses the river (a water-gate).
 			if (!open && riverPath != null && distToPath( mid, riverPath ) < riverHalf + 2)
 				open = true;
+
+			// ...but never open the stretch where the main wall meets the
+			// citadel, or the wall would stop short of the castle instead of
+			// wrapping around to connect to it.
+			if (open && citadel != null) {
+				for (cv in citadel.shape)
+					if (Point.distance( mid, cv ) < cityR * 0.22) { open = false; break; }
+			}
 
 			if (open)
 				w.segments[i] = false;
@@ -681,7 +766,7 @@ class Model {
 		topology = new Topology( this );
 
 		if (riverPath != null)
-			addRiverBridges();
+			linkRiverCrossings();
 
 		for (gate in gates) {
 			// Each gate is connected to the nearest corner of the plaza or to the central junction
@@ -717,6 +802,8 @@ class Model {
 
 		for (a in arteries)
 			smoothStreet( a );
+
+		placeBridges();
 	}
 
 	private function tidyUpRoads() {
