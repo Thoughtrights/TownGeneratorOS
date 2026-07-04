@@ -32,6 +32,8 @@ class Model {
 	private var citadelNeeded	: Bool;
 	private var wallsNeeded		: Bool;
 	private var parksNeeded		: Int;
+	private var farmsNeeded		: Int;
+	private var templesNeeded	: Bool;
 
 	// Below this patch count, folding the citadel into the main wall's
 	// boundary produces a wall shape that isn't simply connected (too
@@ -42,7 +44,7 @@ class Model {
 	private var citadelEnclosed	: Bool = false;
 
 	public static var WARDS:Array<Class<Ward>> = [
-		CraftsmenWard, CraftsmenWard, MerchantWard, CraftsmenWard, CraftsmenWard, Cathedral,
+		CraftsmenWard, CraftsmenWard, MerchantWard, CraftsmenWard, CraftsmenWard, CraftsmenWard,
 		CraftsmenWard, CraftsmenWard, CraftsmenWard, CraftsmenWard, CraftsmenWard,
 		CraftsmenWard, CraftsmenWard, CraftsmenWard, AdministrationWard, CraftsmenWard,
 		Slum, CraftsmenWard, Slum, PatriciateWard, Market,
@@ -78,7 +80,7 @@ class Model {
 	public var inputPlaza   : Bool;
 	public var inputCitadel : Bool;
 
-	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1 ) {
+	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1, inputFarms=6, inputTemples=true ) {
 
 		if (seed > 0) Random.reset( seed );
 		this.nPatches = nPatches != -1 ? nPatches : 15;
@@ -99,6 +101,8 @@ class Model {
 		   citadelNeeded = false;
 		}
 		parksNeeded = inputParks >= 0 ? inputParks : 0;
+		farmsNeeded = inputFarms >= 0 ? inputFarms : 0;
+		templesNeeded = inputTemples == true;
 
 		do try {
 			build();
@@ -425,6 +429,17 @@ class Model {
 					unassigned.remove( patch );
 				}
 
+		// Assigning the main temple: an explicit on/off toggle rather than
+		// leaving its appearance to WARDS shuffle luck. Still uses
+		// Cathedral.rateLocation so it lands as close to the plaza as possible.
+		if (templesNeeded && unassigned.length > 0) {
+			var rateFunc = Reflect.field( Cathedral, "rateLocation" );
+			var bestPatch = unassigned.min( function( patch:Patch )
+				return Reflect.callMethod( Cathedral, rateFunc, [this, patch] ) );
+			bestPatch.ward = new Cathedral( this, bestPatch );
+			unassigned.remove( bestPatch );
+		}
+
 		// Assigning parks: an explicit count rather than leaving it to WARDS shuffle luck
 		for (i in 0...parksNeeded) {
 			if (unassigned.length == 0) break;
@@ -475,15 +490,28 @@ class Model {
 
 		// Calculating radius and processing countryside
 		cityRadius = 0;
+		var farmCandidates:Array<Patch> = [];
 		for (patch in patches)
-			if (patch.withinCity)
+			if (patch.withinCity) {
 				// Radius of the city is the farthest point of all wards from the center
 				for (v in patch.shape)
 					cityRadius = Math.max( cityRadius, v.length );
-			else if (patch.ward == null)
-				patch.ward = Random.bool( 0.2 ) && patch.shape.compactness >= 0.7 ?
-					new Farm( this, patch ) :
-					new Ward( this, patch );
+			} else if (patch.ward == null) {
+				if (patch.shape.compactness >= 0.7)
+					farmCandidates.push( patch );
+				else
+					patch.ward = new Ward( this, patch );
+			}
+
+		// An explicit count rather than a fixed per-patch chance
+		var farmCount = farmsNeeded < farmCandidates.length ? farmsNeeded : farmCandidates.length;
+		for (i in 0...farmCount) {
+			var patch = farmCandidates.random();
+			patch.ward = new Farm( this, patch );
+			farmCandidates.remove( patch );
+		}
+		for (patch in farmCandidates)
+			patch.ward = new Ward( this, patch );
 	}
 
 	private function buildGeometry()

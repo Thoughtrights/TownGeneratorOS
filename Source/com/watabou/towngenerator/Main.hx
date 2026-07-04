@@ -20,6 +20,7 @@ class Main extends Game {
 		CityMap.applyPalette( StateManager.palette );
 		GraphicsExtender.sketchy = StateManager.sketchy;
 		CityMap.roofs = StateManager.roofs;
+		CityMap.towerStyle = StateManager.towers;
 
 		if (StateManager.trans == false) {
 		 	   stage.color = CityMap.palette.paper;
@@ -34,7 +35,9 @@ class Main extends Game {
 			   StateManager.wall,
 			   StateManager.plaza,
 			   StateManager.citadel,
-			   StateManager.parks );
+			   StateManager.parks,
+			   StateManager.farms,
+			   StateManager.temples );
 
 		super( TownScene );
 	}

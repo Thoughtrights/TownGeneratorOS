@@ -21,6 +21,9 @@ class StateManager {
 	private static inline var PALETTE = "palette";
 	private static inline var SKETCHY = "sketchy";
 	private static inline var ROOFS = "roofs";
+	private static inline var FARMS = "farms";
+	private static inline var TOWERS = "towers";
+	private static inline var TEMPLES = "temples";
 
 	public static var size	: Int = 15;
 	public static var seed	: Int = -1;
@@ -32,8 +35,11 @@ class StateManager {
 	public static var tooltips : Bool= true;
 	public static var parks : Int = 1;
 	public static var palette : Int = 0;
-	public static var sketchy : Bool = false;
+	public static var sketchy : Int = 0;
 	public static var roofs : Bool = false;
+	public static var farms : Int = 6;
+	public static var towers : Int = 0;
+	public static var temples : Bool = true;
 
 	public static function pullParams() {
 		#if html5
@@ -114,13 +120,30 @@ class StateManager {
 
 			// Rough, hand-sketched edges; independent of and works with
 			// every palette since it's applied at the drawing stage.
+			// 0 disables it, and higher levels (up to 5) make it rougher.
 			var sketchy1 = Std.parseInt( params.get( SKETCHY ) );
-			if (sketchy1 != null) sketchy = (sketchy1 == 1);
+			if (sketchy1 != null) sketchy = sketchy1 < 0 ? 0 : (sketchy1 > 5 ? 5 : sketchy1);
 
 			// A few parallel lines drawn inside each building to suggest a
 			// ridged/tiled roof; works with every palette.
 			var roofs1 = Std.parseInt( params.get( ROOFS ) );
 			if (roofs1 != null) roofs = (roofs1 == 1);
+
+			// Exact number of countryside patches to turn into farms, not
+			// just a fixed per-patch chance. 0 disables them entirely.
+			var farms1 = Std.parseInt( params.get( FARMS ) );
+			if (farms1 != null) farms = (farms1 >= 0 ? farms1 : 0);
+
+			// Wall tower shape: 0 round (default), 1 square, 2 hexagon,
+			// 3 spiked, 4 a random mix of the above per tower.
+			var towers1 = Std.parseInt( params.get( TOWERS ) );
+			if (towers1 != null) towers = (towers1 >= 0 && towers1 <= 4) ? towers1 : 0;
+
+			// Whether the city has a main temple. Defaults to on since
+			// it's always been part of the shuffled WARDS pool anyway;
+			// this just makes its appearance guaranteed and toggleable.
+			var temples1 = Std.parseInt( params.get( TEMPLES ) );
+			if (temples1 != null) temples = (temples1 == 1);
 		}
 		#end
 	}
@@ -155,22 +178,22 @@ class StateManager {
 		if (tooltips == true) {
 		   	tooltipsArg = 1;
 		}
-		var sketchyArg = 0;
-		if (sketchy == true) {
-		   	sketchyArg = 1;
-		}
 		var roofsArg = 0;
 		if (roofs == true) {
 		   	roofsArg = 1;
+		}
+		var templesArg = 0;
+		if (temples == true) {
+		   	templesArg = 1;
 		}
 
 		#if html5
 		var loc = Browser.location;
 		var search1 = loc.search;
-		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg&$PARKS=$parks&$PALETTE=$palette&$SKETCHY=$sketchyArg&$ROOFS=$roofsArg';
+		var search2 = '?$SIZE=$size&$SEED=$seed&$WALL=$wallArg&$PLAZA=$plazaArg&$CITADEL=$citadelArg&$TRANS=$transArg&$MENU=$menuArg&$TOOLTIPS=$tooltipsArg&$PARKS=$parks&$PALETTE=$palette&$SKETCHY=$sketchy&$ROOFS=$roofsArg&$FARMS=$farms&$TOWERS=$towers&$TEMPLES=$templesArg';
 		// The next line is not entirely correct, it doesn't take into account hashes
 		var url = search1 != "" ? loc.href.split( search1 ).join( search2 ) : loc.href + search2;
-		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg, parks: parks, palette: palette, sketchy: sketchyArg, roofs: roofsArg}, getStateName(), url );
+		Browser.window.history.replaceState( {size: size, seed: seed, wall: wallArg, plaza: plazaArg, citadel: citadelArg, trans: transArg, menu: menuArg, tooltips: tooltipsArg, parks: parks, palette: palette, sketchy: sketchy, roofs: roofsArg, farms: farms, towers: towers, temples: templesArg}, getStateName(), url );
 		#end
 	}
 
