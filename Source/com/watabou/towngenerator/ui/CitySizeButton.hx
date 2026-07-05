@@ -19,7 +19,7 @@ class CitySizeButton extends Button {
 
 	private function onClick():Void {
 		StateManager.pullParams();
-		// Overwrite these two
+		// Overwrite only size and seed; keep everything else the user has set
 		StateManager.size = size;
 		StateManager.seed = Random.getSeed();
 		StateManager.pushParams();
@@ -28,7 +28,12 @@ class CitySizeButton extends Button {
 		    	   StateManager.seed,
 		    	   StateManager.wall,
 			   StateManager.plaza,
-			   StateManager.citadel ); 
+			   StateManager.citadel,
+			   StateManager.parks,
+			   StateManager.farms,
+			   StateManager.temples,
+			   StateManager.river,
+			   StateManager.coast );
 
 		Game.switchScene( TownScene );
 	}

@@ -84,6 +84,14 @@ class CityMap extends Sprite {
 			var waterView = new Shape();
 			drawWater( waterView.graphics, model );
 			addChild( waterView );
+
+			// Harbour docks reach from the shore out over the water; drawn under
+			// the buildings so their landward ends read as attached to the town.
+			if (model.docks != null && model.docks.length > 0) {
+				var dockView = new Shape();
+				drawDocks( dockView.graphics, model );
+				addChild( dockView );
+			}
 		}
 
 		for (road in model.roads) {
@@ -125,48 +133,68 @@ class CityMap extends Sprite {
 			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true, model.center );
 	}
 
+	// True if a building footprint touches the water, so it should be
+	// dropped (a house straddling the bank) rather than drawn on top of it.
+	private function buildingInWater( building:Polygon ):Bool {
+		var m = Model.instance;
+		if (m.seaShape == null && m.riverShape == null)
+			return false;
+		for (v in building)
+			if (m.isWater( v ))
+				return true;
+		return false;
+	}
+
 	// Draws one patch's ward. Returns false for wards with nothing to draw.
 	private function drawWard( g:Graphics, patch:Patch ):Bool {
 		var patchDrawn = true;
+		var cls = Type.getClass( patch.ward );
+
+		// Buildings must never overlap the water: clip out any individual
+		// house that straddles the bank (open ground — farms, parks — is left
+		// whole, since the water simply draws over it).
+		var geo = patch.ward.geometry;
+		if (geo != null && cls != Farm && cls != Park && (Model.instance.seaShape != null || Model.instance.riverShape != null))
+			geo = [for (b in geo) if (!buildingInWater( b )) b];
 
 		if (palette_type == 'NORMAL') {
-			switch (Type.getClass( patch.ward )) {
+			switch (cls) {
 				case Castle:
-					drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
-					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+					drawBuilding( g, geo, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
+					drawRoofHatching( g, geo, palette.dark );
 				case Cathedral:
-					drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE );
-					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+					drawBuilding( g, geo, palette.light, palette.dark, Brush.NORMAL_STROKE );
+					drawRoofHatching( g, geo, palette.dark );
 				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
 					brush.setColor( g, palette.light, palette.dark );
-					for (building in patch.ward.geometry)
+					for (building in geo)
 					    g.drawPolygon( building );
-					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+					drawRoofHatching( g, geo, palette.dark );
 				case Farm:
 					drawFarmField( g, patch.shape, palette.medium, palette.dark );
 					brush.setColor( g, palette.light, palette.dark );
-					for (building in patch.ward.geometry)
+					for (building in geo)
 					    g.drawPolygon( building );
-					drawRoofHatching( g, patch.ward.geometry, palette.dark );
+					drawRoofHatching( g, geo, palette.dark );
 				case Park:
 					brush.setColor( g, palette.medium );
-					for (grove in patch.ward.geometry)
+					for (grove in geo)
 						g.drawPolygon( grove );
 				default:
 					patchDrawn = false;
 			}
 		}
 		else if (palette_type == 'ADVANCED') {
-			switch (Type.getClass( patch.ward )) {
+			switch (cls) {
 				case Castle:
-					drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
-					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+					drawBuilding( g, geo, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
+					drawRoofHatching( g, geo, advanced_palette.building );
 				case Cathedral:
-					drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
-					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+					drawBuilding( g, geo, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
+					drawRoofHatching( g, geo, advanced_palette.building );
 				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
 					brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-					for (building in patch.ward.geometry) {
+					for (building in geo) {
 					    if (Random.bool(0.8)) {
 						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
 					    } else {
@@ -174,16 +202,16 @@ class CityMap extends Sprite {
 					    }
 					    g.drawPolygon( building );
 					}
-					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+					drawRoofHatching( g, geo, advanced_palette.building );
 				case Farm:
 					drawFarmField( g, patch.shape, advanced_palette.grass, advanced_palette.building );
 					brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-					for (building in patch.ward.geometry)
+					for (building in geo)
 						g.drawPolygon( building );
-					drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
+					drawRoofHatching( g, geo, advanced_palette.building );
 				case Park:
 					brush.setColor( g, advanced_palette.grass );
-					for (grove in patch.ward.geometry)
+					for (grove in geo)
 						g.drawPolygon( grove );
 				default:
 					patchDrawn = false;
@@ -193,61 +221,75 @@ class CityMap extends Sprite {
 		return patchDrawn;
 	}
 
+	private function drawDocks( g:Graphics, model:Model ):Void {
+		var fill = palette_type == 'ADVANCED' ? advanced_palette.plot_dark : palette.medium;
+		var line = palette_type == 'ADVANCED' ? advanced_palette.building : palette.dark;
+		for (dock in model.docks) {
+			brush.setStroke( g, line, Brush.NORMAL_STROKE );
+			brush.setFill( g, fill );
+			g.drawPolygon( dock );
+			g.endFill();
+		}
+	}
+
 	private function drawBridge( g:Graphics, a:Point, b:Point ):Void {
-		// Just a paper-coloured deck, no outline: buildings drawn on top of
-		// it hide the ends, so it reads as the road simply carrying across.
-		g.lineStyle( Ward.MAIN_STREET * 1.7, palette.paper, 1, false, null, CapsStyle.SQUARE );
+		// A paper-coloured deck, no outline: it's drawn over the road so it
+		// hides the road's crossing of the open water, and buildings drawn on
+		// top of it hide the ends, so it reads as the road carrying across.
+		// Wide enough to fully cover the road (incl. its darker underlay).
+		g.lineStyle( (Ward.MAIN_STREET + Brush.NORMAL_STROKE) * 1.6, palette.paper, 1, false, null, CapsStyle.SQUARE );
 		g.moveTo( a.x, a.y );
 		g.lineTo( b.x, b.y );
 	}
 
 	private function drawWater( g:Graphics, model:Model ):Void {
-		// Fill sea and river with the same colour and no outline, so where
-		// they meet they read as a single merged surface.
-		g.lineStyle( 0, 0, 0 );
-		g.beginFill( advanced_palette.water );
+		// Bank/shore outlines first...
+		g.lineStyle( Brush.THICK_STROKE * 0.65, advanced_palette.water_dark, 0.9 );
 		if (model.seaShape != null)
 			g.drawPolygon( model.seaShape );
 		if (model.riverShape != null)
 			g.drawPolygon( model.riverShape );
-		g.endFill();
 
-		// Then a shoreline stroke only where water meets land — skipping the
-		// stretch where the river runs into the sea so no line crosses the
-		// open water.
-		g.lineStyle( Brush.THICK_STROKE * 0.5, advanced_palette.water_dark, 0.85 );
-
-		if (model.seaShoreLine != null) {
-			var sl = model.seaShoreLine;
-			for (i in 0...sl.length - 1) {
-				var mid = new Point( (sl[i].x + sl[i + 1].x) / 2, (sl[i].y + sl[i + 1].y) / 2 );
-				if (model.inRiver( mid )) continue;
-				g.moveToPoint( sl[i] );
-				g.lineToPoint( sl[i + 1] );
-			}
+		// ...then the fills on top of them. Each fill covers the water-facing
+		// stretches of the outlines, leaving only the land-facing shoreline
+		// visible — so where the river runs into the sea the outlines vanish
+		// and the two bodies read as one merged surface. Sea and river are
+		// filled separately so their overlap doesn't even-odd cancel.
+		g.lineStyle( 0, 0, 0 );
+		if (model.seaShape != null) {
+			g.beginFill( advanced_palette.water );
+			g.drawPolygon( model.seaShape );
+			g.endFill();
 		}
-
 		if (model.riverShape != null) {
-			var rs = model.riverShape;
-			var n = rs.length;
-			for (i in 0...n) {
-				var v0 = rs[i];
-				var v1 = rs[(i + 1) % n];
-				var mid = new Point( (v0.x + v1.x) / 2, (v0.y + v1.y) / 2 );
-				// skip the bank stretches that lie under the sea
-				if (model.inSea( mid )) continue;
-				g.moveToPoint( v0 );
-				g.lineToPoint( v1 );
-			}
+			g.beginFill( advanced_palette.water );
+			g.drawPolygon( model.riverShape );
+			g.endFill();
 		}
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {
+		// Skip any stretch that runs out over water — roads never show crossing
+		// open water. Valid (near-perpendicular) river crossings are carried by
+		// a bridge deck; oblique ones just stop at the bank.
+		var m = Model.instance;
+		var clip = m.seaShape != null || m.riverShape != null;
+
+		function strokePolyline():Void {
+			var pen = false;
+			for (i in 0...road.length - 1) {
+				var mid = new Point( (road[i].x + road[i + 1].x) / 2, (road[i].y + road[i + 1].y) / 2 );
+				if (clip && m.isWater( mid )) { pen = false; continue; }
+				if (!pen) { g.moveToPoint( road[i] ); pen = true; }
+				g.lineToPoint( road[i + 1] );
+			}
+		}
+
 		g.lineStyle( Ward.MAIN_STREET + Brush.NORMAL_STROKE, palette.medium, false, null, CapsStyle.NONE );
-		g.drawPolyline( road );
+		strokePolyline();
 
 		g.lineStyle( Ward.MAIN_STREET - Brush.NORMAL_STROKE, palette.paper );
-		g.drawPolyline( road );
+		strokePolyline();
 	}
 
 	private function drawWall( g:Graphics, wall:CurtainWall, large:Bool, center:Point ):Void {
@@ -263,11 +305,17 @@ class CityMap extends Sprite {
 				g.lineToPoint( shape[(i + 1) % len] );
 			}
 
+		// Skip gate and tower markings that fall in water — those stretches
+		// are open water-gates / quay, not built defences.
+		var hasWater = Model.instance.seaShape != null || Model.instance.riverShape != null;
+
 		for (gate in wall.gates)
-			drawGate( g, wall.shape, gate );
+			if (!(hasWater && Model.instance.isWater( gate )))
+				drawGate( g, wall.shape, gate );
 
 		for (t in wall.towers)
-			drawTower( g, t, Brush.THICK_STROKE * (large ? 1.5 : 1), center );
+			if (!(hasWater && Model.instance.isWater( t )))
+				drawTower( g, t, Brush.THICK_STROKE * (large ? 1.5 : 1), center );
 	}
 
 	private function outwardDir( p:Point, center:Point ):Point {

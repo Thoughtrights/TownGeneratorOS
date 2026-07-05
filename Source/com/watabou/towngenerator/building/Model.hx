@@ -46,9 +46,10 @@ class Model {
 	private var shoreDist	: Float = 0;	// projection of the shoreline along coastDir
 	private var cityR		: Float = 0;	// approximate city radius
 	public var riverPath	: Array<Point>;	// smoothed river centreline (for bridges)
-	private var riverHalf	: Float = 0;	// half the river's visible width
+	private var riverHalf	: Float = 0;	// base half the river's visible width
+	private var riverHalves	: Array<Float>;	// per-centreline-vertex half-width (flare)
 	public var bridges		: Array<Array<Point>>;	// each [bankA, bankB] deck endpoints
-	public var docks		: Array<Array<Point>>;	// each [base, tip] pier endpoints
+	public var docks		: Array<Polygon>;		// narrow I/L harbour docks
 
 	// Below this patch count, folding the citadel into the main wall's
 	// boundary produces a wall shape that isn't simply connected (too
@@ -255,54 +256,105 @@ class Model {
 			buildCoast( cityR );
 		if (riverNeeded)
 			buildRiver( cityR );
+
+		if (coastNeeded)
+			buildDocks( cityR );
 	}
 
 	// True if a point is under the sea / under the river, individually. Used
 	// by the renderer to stroke only land-facing water edges so the two
 	// bodies read as one merged surface where they meet.
-	public function inSea( p:Point ):Bool
-		return coastDir != null && seaProj( p ) > shoreDist;
+	public function inSea( p:Point ):Bool {
+		if (coastDir == null) return false;
+		var pr = seaProj( p );
+		if (seaShoreLine == null) return pr > shoreDist;
 
-	public function inRiver( p:Point ):Bool
-		return riverPath != null && distToPath( p, riverPath ) < riverHalf;
+		// Test against the actual wavy shoreline (not the straight shoreDist
+		// line) so building/wall/road clipping matches the drawn sea exactly:
+		// find the shoreline sample nearest along the coast and use its depth.
+		var shoreVec = coastDir.rotate90();
+		var tp = (p.x - center.x) * shoreVec.x + (p.y - center.y) * shoreVec.y;
+		var best = Math.POSITIVE_INFINITY;
+		var localShore = shoreDist;
+		for (s in seaShoreLine) {
+			var ts = (s.x - center.x) * shoreVec.x + (s.y - center.y) * shoreVec.y;
+			var d = Math.abs( ts - tp );
+			if (d < best) { best = d; localShore = seaProj( s ); }
+		}
+		return pr > localShore;
+	}
 
-	// A cluster of short piers reaching into the water near the city — its
-	// harbour. Anchored to shore-facing land vertices closest to the centre
-	// and spread out so they don't bunch up.
+	public function inRiver( p:Point ):Bool {
+		if (riverPath == null) return false;
+		// Use the local (possibly flared) half-width at the nearest centreline
+		// vertex, so the wide estuary mouth counts as water too.
+		var best = Math.POSITIVE_INFINITY;
+		var bi = 0;
+		for (i in 0...riverPath.length) {
+			var d = Point.distance( p, riverPath[i] );
+			if (d < best) { best = d; bi = i; }
+		}
+		var half = riverHalves != null ? riverHalves[bi] : riverHalf;
+		return distToPath( p, riverPath ) < half + 1;
+	}
+
+	// A thin rectangular plank (a dock section) from a to b.
+	private function plankPoly( a:Point, b:Point, halfW:Float ):Polygon {
+		var dx = b.x - a.x;
+		var dy = b.y - a.y;
+		var l = Math.sqrt( dx * dx + dy * dy );
+		if (l < 1e-4) l = 1;
+		var nx = -dy / l * halfW;
+		var ny = dx / l * halfW;
+		return new Polygon( [
+			new Point( a.x + nx, a.y + ny ),
+			new Point( b.x + nx, b.y + ny ),
+			new Point( b.x - nx, b.y - ny ),
+			new Point( a.x - nx, a.y - ny )
+		] );
+	}
+
+	// Narrow I- and L-shaped docks reaching from the harbour shore into the
+	// water, near the city centre. Each starts just landward of the waterline
+	// so it reads as attached to the shore-front buildings.
 	private function buildDocks( cr:Float ):Void {
+		docks = [];
 		if (coastDir == null) return;		// harbour is on the open sea
 
 		var shoreVec = coastDir.rotate90();
-		var pierLen = Math.max( 8, cr * 0.1 );
+		var w = Math.max( 1.5, cr * 0.012 );		// half-width of a plank
 
-		// A row of piers spread along the shore near the city centre. For
-		// each, march seaward from near the centre to find the waterline,
-		// then reach a short way into the water.
-		var wanted = 6;
+		var wanted = 5 + Random.int( 0, 4 );
 		for (k in 0...wanted) {
-			var t = (k - (wanted - 1) / 2) * cr * 0.16 + (Random.float() - 0.5) * cr * 0.05;
+			// a ray seaward from near the centre, to find the local waterline
+			var t = (Random.float() - 0.5) * cr * 1.1;
 			var from = new Point( center.x + shoreVec.x * t, center.y + shoreVec.y * t );
 
 			var waterline:Point = null;
-			var hitWater = false;
-			var stepN = 60;
+			var hit = false;
+			var stepN = 80;
 			for (s in 0...stepN) {
-				var d = s / stepN * cr * 2.0;
+				var d = s / stepN * cr * 2.2;
 				var p = new Point( from.x + coastDir.x * d, from.y + coastDir.y * d );
-				if (isWater( p )) { hitWater = true; break; }
+				if (isWater( p )) { hit = true; break; }
 				waterline = p;
 			}
-			// Only a real shoreline near the city gets a pier (skip rays that
-			// never reach the water or meet it far out past the harbour).
-			if (!hitWater || waterline == null || Point.distance( waterline, center ) > cr * 1.25)
+			if (!hit || waterline == null || Point.distance( waterline, center ) > cr * 1.3)
 				continue;
 
-			var jitter = (Random.float() - 0.5) * pierLen * 0.4;
-			var tip = new Point(
-				waterline.x + coastDir.x * pierLen + shoreVec.x * jitter,
-				waterline.y + coastDir.y * pierLen + shoreVec.y * jitter
-			);
-			docks.push( [waterline, tip] );
+			// the plank: from just landward of the waterline out into the water
+			var len = cr * (0.05 + Random.float() * 0.06);
+			var base = new Point( waterline.x - coastDir.x * cr * 0.02, waterline.y - coastDir.y * cr * 0.02 );
+			var tip  = new Point( waterline.x + coastDir.x * len, waterline.y + coastDir.y * len );
+			docks.push( plankPoly( base, tip, w ) );
+
+			// sometimes an L: a short crossbar at the seaward end
+			if (Random.bool( 0.4 )) {
+				var arm = w * (3 + Random.float() * 2);
+				var side = Random.bool() ? 1.0 : -1.0;
+				var b1 = new Point( tip.x + shoreVec.x * arm * side, tip.y + shoreVec.y * arm * side );
+				docks.push( plankPoly( tip, b1, w ) );
+			}
 		}
 	}
 
@@ -312,13 +364,8 @@ class Model {
 		return (p.x - center.x) * coastDir.x + (p.y - center.y) * coastDir.y;
 
 	// True if a point lies in open water (sea or river).
-	public function isWater( p:Point ):Bool {
-		if (coastDir != null && seaProj( p ) > shoreDist)
-			return true;
-		if (riverPath != null && distToPath( p, riverPath ) < riverHalf)
-			return true;
-		return false;
-	}
+	public function isWater( p:Point ):Bool
+		return inSea( p ) || inRiver( p );
 
 	// Removes a patch from the model and records it as water.
 	private function floodPatch( p:Patch ):Void {
@@ -334,27 +381,11 @@ class Model {
 		coastDir = new Point( Math.cos( a ), Math.sin( a ) );
 
 		// Put the shoreline partway across the seaward side of the city so a
-		// broad arc of districts fronts the water. The land mask keeps the
-		// water from bleeding between kept buildings, so this can come fairly
-		// far in without drowning the built-up gaps.
-		shoreDist = cr * (0.58 + Random.float() * 0.12);
-
-		// Flood every patch that reaches past the shoreline (any vertex), so
-		// no building patch straddles the water. The plaza and citadel are
-		// always kept dry so the city core stays intact. The small margin
-		// covers the shoreline's cosmetic wobble.
-		var margin = cr * 0.12;
-		var flooded:Array<Patch> = [];
-		for (p in patches)
-			if (p != plaza && p != citadel) {
-				var wet = false;
-				for (v in p.shape)
-					if (seaProj( v ) > shoreDist - margin) { wet = true; break; }
-				if (wet)
-					flooded.push( p );
-			}
-		for (p in flooded)
-			floodPatch( p );
+		// broad arc of districts fronts the water. The water is a geometric
+		// overlay (not removed patches): it's drawn over open land and farms,
+		// clips the individual houses that straddle it, and opens the wall
+		// where it crosses — so districts can sit right on the waterline.
+		shoreDist = cr * (0.62 + Random.float() * 0.14);
 
 		buildSeaShape( cr );
 	}
@@ -370,18 +401,16 @@ class Model {
 
 		var span = cr * 5;		// along-shore half-length
 		var far = cr * 5;		// how far out to sea to fill
-		var wob = cr * 0.08;	// shore wobble amplitude (kept small so the
-								// flood margin can reliably cover it)
-		var n = 40;
+		var wob = cr * 0.06;	// shore wobble amplitude
+		var n = 60;
 		var phase = Random.float() * Math.PI * 2;
 
 		var pts:Array<Point> = [];
 		for (i in 0...n + 1) {
 			var t = -span + (2 * span) * i / n;
-			// gentle multi-frequency wobble, biased slightly landward so the
-			// sea always reaches the flooded patches (wards drawn on top hide
-			// any overlap onto land)
-			var wobble = Math.sin( phase + t / cr * 0.9 ) * wob + Math.sin( phase * 2.3 + t / cr * 2.4 ) * wob * 0.4 - wob * 0.35;
+			// gentle multi-frequency wobble, unbiased (clipping now tracks the
+			// actual shoreline via inSea, so no landward bias is needed)
+			var wobble = Math.sin( phase + t / cr * 0.9 ) * wob + Math.sin( phase * 2.3 + t / cr * 2.4 ) * wob * 0.4;
 			pts.push( new Point(
 				base.x + shoreVec.x * t + coastDir.x * wobble,
 				base.y + shoreVec.y * t + coastDir.y * wobble
@@ -430,39 +459,34 @@ class Model {
 	}
 
 	private function buildRiver( cr:Float ):Void {
-		// Visible river width: 4-10x a main street. A cleared corridor a
-		// little wider than this keeps buildings off the banks; the ribbon
-		// itself is the crisp water down the middle.
+		// Visible river width: clearly wider than a street (4-10x a main
+		// street). The river is a geometric overlay — patches stay put, the
+		// ribbon is drawn over them, houses straddling it are clipped, the
+		// wall opens where it crosses, and streets bridge it.
 		var width = Ward.MAIN_STREET * (4 + Random.float() * 6);
 		riverHalf = width / 2;
-		var clearHalf = riverHalf + Math.max( 8, cr * 0.05 );
 
-		// General flow direction across the map, and how far the river is
-		// offset from the centre: near 0 runs through the city, near +/-cr
-		// runs beside it. If there's a coast, aim flow roughly out to sea.
-		var flowA = coastDir != null ? Math.atan2( coastDir.y, coastDir.x ) + (Random.float() - 0.5) * 0.6 : Random.float() * 2 * Math.PI;
+		// General flow direction across the map. With a coast, aim roughly out
+		// to sea so the river reads as an estuary at the junction.
+		var flowA = coastDir != null ? Math.atan2( coastDir.y, coastDir.x ) + (Random.float() - 0.5) * 0.7 : Random.float() * 2 * Math.PI;
 		var dir = new Point( Math.cos( flowA ), Math.sin( flowA ) );
 		var perp = dir.rotate90();
-		// The river runs to one side of the city — grazing its edge or well
-		// beside it — rather than through the dead centre (which would split
-		// the city around the plaza with no way to bridge the halves). A
-		// road that meets it gets a bridge. With a coast it stays nearer the
-		// city so the estuary reads at the junction.
+		// Run it through the city (near the centre) so it genuinely bisects
+		// the built-up area, with the two banks joined by bridges. A modest
+		// offset keeps the plaza on one side.
 		var side = Random.bool() ? 1.0 : -1.0;
-		var offset = coastDir != null
-			? side * (0.4 + Random.float() * 0.35) * cr
-			: side * (0.6 + Random.float() * 0.5) * cr;
+		var offset = side * (0.05 + Random.float() * 0.28) * cr;
 
 		var thru = new Point( center.x + perp.x * offset, center.y + perp.y * offset );
 
 		// A few control points from one edge of the map to the other, each
 		// nudged sideways for gentle bends.
-		var reach = cr * 2.6;
+		var reach = cr * 2.8;
 		var n = 6;
 		var ctrl:Array<Point> = [];
 		for (i in 0...n + 1) {
 			var s = -reach + (2 * reach) * i / n;
-			var bend = (Random.float() - 0.5) * cr * 0.55;
+			var bend = (Random.float() - 0.5) * cr * 0.5;
 			ctrl.push( new Point(
 				thru.x + dir.x * s + perp.x * bend,
 				thru.y + dir.y * s + perp.y * bend
@@ -485,22 +509,22 @@ class Model {
 			dense = smoothOpen( dense );
 		riverPath = dense;
 
-		// Flood the corridor: any patch that so much as touches it, so no
-		// building patch is left straddling (and drawn over) the water.
-		var flooded:Array<Patch> = [];
-		for (p in patches)
-			if (p != plaza && p != citadel) {
-				var touches = distToPath( p.shape.centroid, riverPath ) < clearHalf;
-				if (!touches)
-					for (v in p.shape)
-						if (distToPath( v, riverPath ) < clearHalf) { touches = true; break; }
-				if (touches)
-					flooded.push( p );
+		// Per-vertex half-width: constant upstream, flaring toward the sea end
+		// so the river opens into a broad mouth at an estuary.
+		var m = riverPath.length;
+		var halves = [for (i in 0...m) riverHalf];
+		if (coastDir != null) {
+			// Which end runs out to sea (further along coastDir)
+			var seaAtEnd = seaProj( riverPath[m - 1] ) > seaProj( riverPath[0] );
+			for (i in 0...m) {
+				var t = seaAtEnd ? i / (m - 1) : 1 - i / (m - 1);	// 0 upstream .. 1 at sea
+				var flare = t < 0.55 ? 0.0 : (t - 0.55) / 0.45;		// last ~45% widens
+				halves[i] = riverHalf * (1 + 1.7 * flare);
 			}
-		for (p in flooded)
-			floodPatch( p );
+		}
 
-		riverShape = buildRibbon( riverPath, riverHalf );
+		riverHalves = halves;
+		riverShape = buildRibbon( riverPath, halves );
 	}
 
 	// Nearest land patch vertex to a point (used to anchor a bridge deck to
@@ -566,61 +590,108 @@ class Model {
 			linkCrossing( first + Std.int( (last - first) * (b + 0.5) / count ) );
 	}
 
-	// Once the streets exist, drop a bridge deck wherever a road actually
-	// crosses the river — so bridges only appear where there's a road, and
-	// each deck follows the road across the water.
+	// Nearest point on the river centreline to p, with the local flow
+	// direction (unit) and half-width there. Used to lay a bridge square
+	// across the river.
+	private function nearestOnRiver( p:Point ):{ c:Point, dir:Point, half:Float } {
+		var best = Math.POSITIVE_INFINITY;
+		var bc = riverPath[0];
+		var bdir = new Point( 1, 0 );
+		var bhalf = riverHalf;
+		for (i in 0...riverPath.length - 1) {
+			var a = riverPath[i];
+			var b = riverPath[i + 1];
+			var dx = b.x - a.x;
+			var dy = b.y - a.y;
+			var l2 = dx * dx + dy * dy;
+			if (l2 < 1e-9) continue;
+			var t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+			t = t < 0 ? 0 : (t > 1 ? 1 : t);
+			var cx = a.x + dx * t;
+			var cy = a.y + dy * t;
+			var d = (p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy);
+			if (d < best) {
+				best = d;
+				bc = new Point( cx, cy );
+				var l = Math.sqrt( l2 );
+				bdir = new Point( dx / l, dy / l );
+				bhalf = riverHalves != null ? (riverHalves[i] + riverHalves[i + 1]) / 2 : riverHalf;
+			}
+		}
+		return { c: bc, dir: bdir, half: bhalf };
+	}
+
+	// Which side of the river centreline a point is on (+1 / -1), by the
+	// nearest centreline segment. 0 only for a degenerate path.
+	private function riverSide( p:Point ):Float {
+		var best = Math.POSITIVE_INFINITY;
+		var side = 0.0;
+		for (i in 0...riverPath.length - 1) {
+			var a = riverPath[i];
+			var b = riverPath[i + 1];
+			var dx = b.x - a.x;
+			var dy = b.y - a.y;
+			var l2 = dx * dx + dy * dy;
+			if (l2 < 1e-9) continue;
+			var t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+			t = t < 0 ? 0 : (t > 1 ? 1 : t);
+			var cx = a.x + dx * t;
+			var cy = a.y + dy * t;
+			var d = (p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy);
+			if (d < best) {
+				best = d;
+				side = ((p.x - a.x) * dy - (p.y - a.y) * dx) > 0 ? 1.0 : -1.0;
+			}
+		}
+		return side;
+	}
+
+	// Once the streets exist, drop a bridge deck wherever a road crosses the
+	// river. Each deck is laid perpendicular to the river (the shortest
+	// possible span) and centred on the centreline — so it always reads short
+	// and square, whatever angle the road approaches at. A crossing is a road
+	// segment whose ends sit on opposite banks (or that lies in the water); a
+	// road merely running along a bank never flips sides, so it isn't bridged.
 	public function placeBridges():Void {
 		bridges = [];
 		if (riverPath == null || arteries == null) return;
 
-		var margin = Math.max( 4, cityR * 0.04 );
+		var margin = Math.max( 3, cityR * 0.03 );
 
 		for (a in arteries)
 			for (i in 0...a.length - 1) {
-				var s0 = a[i];
-				var s1 = a[i + 1];
-				var sdx = s1.x - s0.x;
-				var sdy = s1.y - s0.y;
+				var p0 = a[i];
+				var p1 = a[i + 1];
+				var mid = new Point( (p0.x + p1.x) / 2, (p0.y + p1.y) / 2 );
 
-				// Does this road segment cross the river centreline?
-				for (j in 0...riverPath.length - 1) {
-					var r0 = riverPath[j];
-					var r1 = riverPath[j + 1];
-					var t = GeomUtils.intersectLines( s0.x, s0.y, sdx, sdy, r0.x, r0.y, r1.x - r0.x, r1.y - r0.y );
-					if (t == null || t.x < 0 || t.x > 1 || t.y < 0 || t.y > 1)
-						continue;
+				var s0 = riverSide( p0 );
+				var s1 = riverSide( p1 );
+				var crosses = (s0 != 0 && s1 != 0 && s0 != s1) || inRiver( mid );
+				if (!crosses) continue;
 
-					var c = new Point( s0.x + sdx * t.x, s0.y + sdy * t.x );
+				var near = nearestOnRiver( mid );
 
-					var dup = false;
-					for (br in bridges) {
-						var bm = new Point( (br[0].x + br[1].x) / 2, (br[0].y + br[1].y) / 2 );
-						if (Point.distance( bm, c ) < riverHalf * 1.5) { dup = true; break; }
-					}
-					if (dup) continue;
-
-					// Deck runs along the road, spanning from bank to bank.
-					var dir = new Point( sdx, sdy );
-					dir.normalize( 1 );
-					var fwd = 0.0;
-					while (fwd < cityR && inRiver( new Point( c.x + dir.x * fwd, c.y + dir.y * fwd ) )) fwd += 1;
-					var back = 0.0;
-					while (back < cityR && inRiver( new Point( c.x - dir.x * back, c.y - dir.y * back ) )) back += 1;
-					fwd += margin;
-					back += margin;
-
-					bridges.push( [
-						new Point( c.x + dir.x * fwd, c.y + dir.y * fwd ),
-						new Point( c.x - dir.x * back, c.y - dir.y * back )
-					] );
-					break;
+				var dup = false;
+				for (br in bridges) {
+					var bm = new Point( (br[0].x + br[1].x) / 2, (br[0].y + br[1].y) / 2 );
+					if (Point.distance( bm, near.c ) < near.half * 2.5) { dup = true; break; }
 				}
+				if (dup) continue;
+
+				// Deck square across the river, centred on the centreline.
+				var perp = new Point( -near.dir.y, near.dir.x );
+				var reach = near.half + margin;
+				bridges.push( [
+					new Point( near.c.x + perp.x * reach, near.c.y + perp.y * reach ),
+					new Point( near.c.x - perp.x * reach, near.c.y - perp.y * reach )
+				] );
 			}
 	}
 
-	// Turns a polyline into a closed ribbon polygon of the given half-width
-	// by offsetting each vertex along its averaged normal.
-	private function buildRibbon( path:Array<Point>, half:Float ):Polygon {
+	// Turns a polyline into a closed ribbon polygon, offsetting each vertex
+	// along its averaged normal by that vertex's half-width (so the ribbon
+	// can flare, e.g. at a river mouth).
+	private function buildRibbon( path:Array<Point>, halves:Array<Float> ):Polygon {
 		var left:Array<Point> = [];
 		var right:Array<Point> = [];
 		var m = path.length;
@@ -633,8 +704,9 @@ class Model {
 			if (len < 0.0001) len = 1;
 			var nx = -dy / len;
 			var ny = dx / len;
-			left.push( new Point( path[i].x + nx * half, path[i].y + ny * half ) );
-			right.push( new Point( path[i].x - nx * half, path[i].y - ny * half ) );
+			var h = halves[i];
+			left.push( new Point( path[i].x + nx * h, path[i].y + ny * h ) );
+			right.push( new Point( path[i].x - nx * h, path[i].y - ny * h ) );
 		}
 		right.reverse();
 		return new Polygon( left.concat( right ) );
@@ -643,7 +715,7 @@ class Model {
 	// Open the wall where it runs along water (a quay / water-gate) rather
 	// than walling off the harbour. Relies on CurtainWall.segments, which
 	// tower-building and rendering already respect.
-	private function openWaterWallSegments( w:CurtainWall ):Void {
+	private function openWaterWallSegments( w:CurtainWall, isCastle=false ):Void {
 		var shape = w.shape;
 		var len = shape.length;
 		for (i in 0...len) {
@@ -651,28 +723,16 @@ class Model {
 			var v1 = shape[(i + 1) % len];
 			var mid = new Point( (v0.x + v1.x) / 2, (v0.y + v1.y) / 2 );
 
-			var open = false;
+			// Open any wall edge that actually lies in water — the seaward
+			// harbour arc for a coast, or the two crossings of a river
+			// (its water-gates). Everywhere else the wall stays complete.
+			var open = isWater( mid );
 
-			// Open the seaward-facing arc of the wall (a harbour quay): the
-			// edge's outward normal points roughly out to sea and it sits on
-			// the seaward side of the city. A thin beach may lie between the
-			// quay and the waterline, so we key off facing, not a probe point.
-			if (coastDir != null) {
-				var out = mid.subtract( center );
-				out.normalize( 1 );
-				var facing = out.x * coastDir.x + out.y * coastDir.y;
-				if (facing > 0.45 && seaProj( mid ) > shoreDist * 0.5)
-					open = true;
-			}
-
-			// Open where the wall crosses the river (a water-gate).
-			if (!open && riverPath != null && distToPath( mid, riverPath ) < riverHalf + 2)
-				open = true;
-
-			// ...but never open the stretch where the main wall meets the
-			// citadel, or the wall would stop short of the castle instead of
-			// wrapping around to connect to it.
-			if (open && citadel != null) {
+			// On the main wall, never open the stretch where it meets the
+			// citadel, or it would stop short of the castle instead of
+			// wrapping around to connect to it. (The castle's own wall is
+			// exempt — it should open at the water like any other wall.)
+			if (open && !isCastle && citadel != null) {
 				for (cv in citadel.shape)
 					if (Point.distance( mid, cv ) < cityR * 0.22) { open = false; break; }
 			}
@@ -697,22 +757,35 @@ class Model {
 		if (wallsNeeded) {
 			wall = border;
 			wall.buildTowers();
+			// No towers standing out in the harbour or river
+			if (coastNeeded || riverNeeded)
+				wall.towers = wall.towers.filter( function( t:Point ) return !isWater( t ) );
 		}
 
 		var radius = border.getRadius();
 		patches = patches.filter( function( p:Patch ) return p.shape.distance( center ) < radius * 3 );
 
-		gates = border.gates;
+		// Drop any gate that fell in water (a seaward or mid-river vertex); a
+		// street shouldn't march out into the harbour or river. The wall is
+		// already opened there. Land gates keep their streets, which bridge
+		// the river where they cross it.
+		gates = border.gates.filter( function( g:Point ) return !isWater( g ) );
 
 		if (citadel != null) {
 			var castle = new Castle( this, citadel );
+			// A castle can sit on the river/coast too — open its own wall where
+			// it meets the water, just like the main wall.
+			if (coastNeeded || riverNeeded)
+				openWaterWallSegments( castle.wall, true );
 			castle.wall.buildTowers();
+			if (coastNeeded || riverNeeded)
+				castle.wall.towers = castle.wall.towers.filter( function( t:Point ) return !isWater( t ) );
 			citadel.ward = castle;
 
 			if (citadel.shape.compactness < 0.75)
 				throw new Error( "Bad citadel shape!" );
 
-			gates = gates.concat( castle.wall.gates );
+			gates = gates.concat( castle.wall.gates.filter( function( g:Point ) return !isWater( g ) ) );
 		}
 	}
 
@@ -794,6 +867,12 @@ class Model {
 					if (road != null)
 						roads.push( road );
 				}
+			} else if (riverNeeded || coastNeeded) {
+				// With water in play a stray gate can end up cut off from the
+				// plaza (e.g. across the river). Tolerate it — skip that one
+				// street — rather than throwing the whole city away and
+				// regenerating, which is slow and can loop.
+				continue;
 			} else
 				throw new Error( "Unable to build a street!" );
 		}

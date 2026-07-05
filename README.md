@@ -29,8 +29,8 @@ to run this code, both available through `haxelib`.
 | `sketchy` | `0`-`5` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. `0` (default) disables it; higher values make it progressively wavier and more displaced. Works with every palette. |
 | `roofs` | `0` / `1` | Gable-roof lines on each building: a ridge line down its long axis, plus a few short rafters perpendicular to it on one side only. Works with every palette, and combines with `sketchy`. |
 | `towers` | `0`-`4` | Wall tower shape. `0` (default) round; `1` square (flat face pointing outward); `2` hexagon (vertex pointing outward); `3` round with a few little spikes on the outward-facing side; `4` a random mix of the above per tower. |
-| `river` | `0` / `1` | `1` runs a small river across the map, beside or through the city, with gradual bends and bridges where it meets the streets. Default `0`. See below. |
-| `coast` | `0` / `1` | `1` puts the city on a coast: an open harbour front with piers reaching into the water, districts fronting the sea. Default `0`. `river=1&coast=1` makes an estuary. See below. |
+| `river` | `0` / `1` | `1` runs a gently bending river through the city, with the built-up area on both banks joined by short bridges where the streets cross. Default `0`. See below. |
+| `coast` | `0` / `1` | `1` puts the city on a coast: an open harbour front with I/L-shaped docks reaching into the water and districts right on the waterline. Default `0`. `river=1&coast=1` makes an estuary. See below. |
 | `trans` | `0` / `1` | Transparent background instead of the palette's paper color. |
 | `menu` | `0` / `1` | Show/hide the city-size selection buttons. |
 | `tooltips` | `0` / `1` | Show/hide ward tooltips. |
@@ -45,11 +45,11 @@ Farm patches get a faint tint over the whole plot plus a few furrow lines parall
 
 ### Water (`river`, `coast`)
 
-Water is drawn as a solid, per-palette-harmonized colour (a slate blue on the default palette, muted teal/blue-grey on the earth-tone ones) so it reads clearly against the land. No buildings, farms, walls, streets, or towers are ever placed in the water.
+Water is drawn as a solid, per-palette-harmonized colour (a slate blue on the default palette, muted teal/blue-grey on the earth-tone ones) so it reads clearly against the land. It's a geometric overlay rather than removed map cells: the patch layout underneath is left intact, so walls stay complete and streets route normally. The water is drawn over open ground and farmland, and anything solid that meets it is handled cleanly — individual houses that straddle the bank are clipped away (so buildings hug the waterline instead of whole blocks being deleted), the wall opens where it crosses the water, and no building, wall, tower, road, or street is ever drawn over open water.
 
-- **`river=1`** lays a gently bending river, 4–10× the width of a road, across the map. It may run alongside the city or cut through it. Where it crosses the built-up area, bridges span it; a river running beside the city gets a single bridge at its nearest approach, one running through gets several.
-- **`coast=1`** floods the seaward side of the map so a broad arc of districts fronts the water. The city wall opens along the waterfront (a quay) instead of walling off the sea, and a row of piers reaches out from the harbour.
-- **`river=1&coast=1`** aims the river at the sea so it becomes an estuary, with the city sitting at the junction.
+- **`river=1`** lays a gently bending river, 4–10× the width of a road, through the city, bisecting the built-up area with districts on both banks. Streets cross it on short **bridges** laid perpendicular to the flow (the shortest span) wherever a road genuinely crosses; the wall opens into a water-gate on each bank where the river passes through it.
+- **`coast=1`** puts the seaward side of the map under water, with a gently wavy shoreline the land clips against exactly, so a broad arc of districts sits right on the waterline. The city wall opens along the waterfront (a quay) instead of walling off the sea, and narrow **I/L-shaped docks** reach out from the harbour into the water.
+- **`river=1&coast=1`** aims the river at the sea so it becomes an estuary: the river widens toward its mouth and merges seamlessly into the sea (no line between the two), with the city sitting at the junction.
 
 ### Palettes
 
@@ -67,8 +67,10 @@ Water is drawn as a solid, per-palette-harmonized colour (a slate blue on the de
 
 ## To Do
 
-* Toggle on URL for the following:
-  - Citadels > 1
 * Add district coloration
-* Citadel
-  - Shapes of citadel building are not great
+* Change Sketchy to be 0,1,2
+* Add surrounding trees
+* Add surrounding mountains
+* Add surrounding swamps
+* Allow the city or town to be in a giant cavern
+
