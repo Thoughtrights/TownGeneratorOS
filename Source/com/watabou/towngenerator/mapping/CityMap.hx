@@ -4,9 +4,12 @@ import com.watabou.utils.Random;
 
 import openfl.display.Shape;
 import openfl.display.CapsStyle;
+import openfl.display.JointStyle;
 import openfl.display.Graphics;
 import openfl.display.Sprite;
 import openfl.geom.Point;
+
+import com.watabou.utils.GraphicsExtender;
 
 import com.watabou.geom.Polygon;
 import com.watabou.geom.GeomUtils;
@@ -41,6 +44,10 @@ class CityMap extends Sprite {
 	// Tower shape: 0 round (default), 1 square, 2 hexagon, 3 spiked,
 	// 4 a random mix of the above per tower.
 	public static var towerStyle:Int = 0;
+
+	// Surrounding terrain: 0 none, 1 forest, 2 mountains, 3 swamp,
+	// 4 cavern (the city sits in a giant cave).
+	public static var terrain:Int = 0;
 
 	// index 0 keeps the current MOJEEB/DEFAULT look; 1-9 select one of
 	// the numbered earth-tone/architectural palette pairs.
@@ -94,6 +101,14 @@ class CityMap extends Sprite {
 			}
 		}
 
+		// Surrounding terrain scatter (forest / mountains / swamp) sits on
+		// the countryside, under the roads that thread through it.
+		if (terrain >= 1 && terrain <= 3) {
+			var terrainView = new Shape();
+			drawTerrainScatter( terrainView.graphics, model );
+			addChild( terrainView );
+		}
+
 		for (road in model.roads) {
 			var roadView = new Shape();
 			drawRoad( roadView.graphics, road );
@@ -123,6 +138,14 @@ class CityMap extends Sprite {
 		for (patch in patches)
 			addChild( patch.hotArea );
 
+		// The cavern swallows everything beyond its wall — drawn over the
+		// countryside, under the city wall (which stands inside the cave).
+		if (terrain == 4) {
+			var caveView = new Shape();
+			drawCavern( caveView.graphics, model );
+			addChild( caveView );
+		}
+
 		var walls = new Shape();
 		addChild( walls );
 
@@ -146,6 +169,44 @@ class CityMap extends Sprite {
 	}
 
 	// Draws one patch's ward. Returns false for wards with nothing to draw.
+	// Blend two colours; t=0 keeps a, t=1 gives b.
+	private static function mix( a:Int, b:Int, t:Float ):Int {
+		var ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+		var br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+		return (Std.int( ar + (br - ar) * t ) << 16) |
+		       (Std.int( ag + (bg - ag) * t ) << 8) |
+		        Std.int( ab + (bb - ab) * t );
+	}
+
+	// How sloppily each district is sketched (multiplier on `sketchy`):
+	// slums are scrawled, patrician wards and the castle are drawn with care.
+	private function wardSketchScale( cls:Class<Ward> ):Float {
+		return if (cls == Slum) 1.7
+		else if (cls == GateWard) 1.3
+		else if (cls == Farm) 1.2
+		else if (cls == MerchantWard) 0.85
+		else if (cls == MilitaryWard) 0.75
+		else if (cls == AdministrationWard) 0.6
+		else if (cls == Cathedral || cls == PatriciateWard) 0.5
+		else if (cls == Castle) 0.4
+		else 1.0;
+	}
+
+	// A slight identifying tint per district type, blended faintly into the
+	// building fill so neighbourhoods read differently without breaking the
+	// palette: gold for merchants, plum for the patriciate, steel for the
+	// military, blue-grey for administration, drab for the slums.
+	private function wardTint( cls:Class<Ward> ):Int {
+		return if (cls == MerchantWard) 0xC9A227
+		else if (cls == PatriciateWard) 0x7A4E7E
+		else if (cls == MilitaryWard) 0x46586A
+		else if (cls == AdministrationWard) 0x4E6E8E
+		else if (cls == Slum) 0x59493A
+		else if (cls == Cathedral) 0xB8B2D0
+		else -1;
+	}
+	private static inline var TINT = 0.13;
+
 	private function drawWard( g:Graphics, patch:Patch ):Bool {
 		var patchDrawn = true;
 		var cls = Type.getClass( patch.ward );
@@ -156,6 +217,9 @@ class CityMap extends Sprite {
 		var geo = patch.ward.geometry;
 		if (geo != null && cls != Farm && cls != Park && (Model.instance.seaShape != null || Model.instance.riverShape != null))
 			geo = [for (b in geo) if (!buildingInWater( b )) b];
+
+		// Sloppiness varies by district (only matters when sketchy > 0)
+		GraphicsExtender.sketchScale = wardSketchScale( cls );
 
 		if (palette_type == 'NORMAL') {
 			switch (cls) {
@@ -190,15 +254,17 @@ class CityMap extends Sprite {
 					drawBuilding( g, geo, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
 					drawRoofHatching( g, geo, advanced_palette.building );
 				case Cathedral:
-					drawBuilding( g, geo, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
+					drawBuilding( g, geo, mix( advanced_palette.plot_medium, wardTint( Cathedral ), TINT ), advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
 					drawRoofHatching( g, geo, advanced_palette.building );
 				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
-					brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+					var tint = wardTint( cls );
+					var fillMed = tint == -1 ? advanced_palette.plot_medium : mix( advanced_palette.plot_medium, tint, TINT );
+					var fillDark = tint == -1 ? advanced_palette.plot_dark : mix( advanced_palette.plot_dark, tint, TINT );
 					for (building in geo) {
 					    if (Random.bool(0.8)) {
-						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+						brush.setColor( g, fillMed, advanced_palette.building );
 					    } else {
-						brush.setColor( g, advanced_palette.plot_dark, advanced_palette.building );
+						brush.setColor( g, fillDark, advanced_palette.building );
 					    }
 					    g.drawPolygon( building );
 					}
@@ -218,18 +284,54 @@ class CityMap extends Sprite {
 			}
 		}
 
+		GraphicsExtender.sketchScale = 1.0;
 		return patchDrawn;
 	}
 
+	// Each dock is an open polyline skeleton (I, L, or the bar of a T).
+	// Drawn as narrow planking: a dark outline stroke with a lighter deck
+	// stroke over it, then faint cross-ticks for plank texture.
 	private function drawDocks( g:Graphics, model:Model ):Void {
-		var fill = palette_type == 'ADVANCED' ? advanced_palette.plot_dark : palette.medium;
+		var deck = palette_type == 'ADVANCED' ? advanced_palette.plot_dark : palette.medium;
 		var line = palette_type == 'ADVANCED' ? advanced_palette.building : palette.dark;
+
+		var w = Ward.MAIN_STREET * 0.9;		// much narrower than before
+
+		// dark outline under...
+		g.lineStyle( w + Brush.NORMAL_STROKE * 2, line, 1, false, null, CapsStyle.SQUARE, JointStyle.MITER );
 		for (dock in model.docks) {
-			brush.setStroke( g, line, Brush.NORMAL_STROKE );
-			brush.setFill( g, fill );
-			g.drawPolygon( dock );
-			g.endFill();
+			g.moveToPoint( dock[0] );
+			for (i in 1...dock.length)
+				g.lineToPoint( dock[i] );
 		}
+
+		// ...deck over
+		g.lineStyle( w, deck, 1, false, null, CapsStyle.SQUARE, JointStyle.MITER );
+		for (dock in model.docks) {
+			g.moveToPoint( dock[0] );
+			for (i in 1...dock.length)
+				g.lineToPoint( dock[i] );
+		}
+
+		// plank ticks across each span
+		g.lineStyle( Brush.THIN_STROKE, line, 0.4, false, null, CapsStyle.NONE );
+		for (dock in model.docks)
+			for (i in 0...dock.length - 1) {
+				var a = dock[i];
+				var b = dock[i + 1];
+				var d = Point.distance( a, b );
+				if (d < 0.001) continue;
+				var ux = (b.x - a.x) / d, uy = (b.y - a.y) / d;
+				var nx = -uy * w * 0.5, ny = ux * w * 0.5;
+				var step = 2.4;
+				var s = step;
+				while (s < d - 0.5) {
+					var px = a.x + ux * s, py = a.y + uy * s;
+					g.moveTo( px + nx, py + ny );
+					g.lineTo( px - nx, py - ny );
+					s += step;
+				}
+			}
 	}
 
 	private function drawBridge( g:Graphics, a:Point, b:Point ):Void {
@@ -292,30 +394,72 @@ class CityMap extends Sprite {
 		strokePolyline();
 	}
 
+	// March from a land point toward a water point and return the last spot
+	// still on land — where the wall should stop and its bank tower stand.
+	private function waterlineToward( land:Point, water:Point ):Point {
+		var m = Model.instance;
+		var d = Point.distance( land, water );
+		var n = Std.int( Math.max( 8, d / 1.5 ) );
+		var last = land;
+		for (k in 1...n + 1) {
+			var p = new Point( land.x + (water.x - land.x) * k / n, land.y + (water.y - land.y) * k / n );
+			if (m.isWater( p )) break;
+			last = p;
+		}
+		return last;
+	}
+
 	private function drawWall( g:Graphics, wall:CurtainWall, large:Bool, center:Point ):Void {
 		g.lineStyle( Brush.THICK_STROKE, palette.dark );
 
+		var m = Model.instance;
+		var hasWater = m.seaShape != null || m.riverShape != null;
+		var towerR = Brush.THICK_STROKE * (large ? 1.5 : 1);
+
+		// Ends of wall stubs clipped at the waterline, each of which gets a
+		// bank tower so both banks of a river gap read finished.
+		var bankTowers:Array<Point> = [];
+
 		// Draw only the enabled segments, so stretches opened for a harbour
 		// quay or a river water-gate leave a gap instead of a solid wall.
+		// A segment whose far vertex stands in the water is clipped at the
+		// waterline instead of dipping in.
 		var shape = wall.shape;
 		var len = shape.length;
 		for (i in 0...len)
 			if (wall.segments[i]) {
-				g.moveToPoint( shape[i] );
-				g.lineToPoint( shape[(i + 1) % len] );
+				var a = shape[i];
+				var b = shape[(i + 1) % len];
+
+				if (hasWater) {
+					var aw = m.isWater( a );
+					var bw = m.isWater( b );
+					if (aw && bw) continue;			// entirely in water: nothing to draw
+					if (bw) {
+						b = waterlineToward( a, b );
+						bankTowers.push( b );
+					} else if (aw) {
+						a = waterlineToward( b, a );
+						bankTowers.push( a );
+					}
+				}
+
+				g.moveToPoint( a );
+				g.lineToPoint( b );
 			}
 
 		// Skip gate and tower markings that fall in water — those stretches
 		// are open water-gates / quay, not built defences.
-		var hasWater = Model.instance.seaShape != null || Model.instance.riverShape != null;
-
 		for (gate in wall.gates)
-			if (!(hasWater && Model.instance.isWater( gate )))
+			if (!(hasWater && m.isWater( gate )))
 				drawGate( g, wall.shape, gate );
 
 		for (t in wall.towers)
-			if (!(hasWater && Model.instance.isWater( t )))
-				drawTower( g, t, Brush.THICK_STROKE * (large ? 1.5 : 1), center );
+			if (!(hasWater && m.isWater( t )))
+				drawTower( g, t, towerR, center );
+
+		for (t in bankTowers)
+			drawTower( g, t, towerR, center );
 	}
 
 	private function outwardDir( p:Point, center:Point ):Point {
@@ -562,5 +706,201 @@ class CityMap extends Sprite {
 			i += 2;
 		}
 		return segments;
+	}
+
+	// ------------------------------------------------------------------
+	// Surrounding terrain (the `terrain` URL param)
+
+	private static function pointInPoly( p:Point, poly:Polygon ):Bool {
+		var inside = false;
+		var n = poly.length;
+		var j = n - 1;
+		for (i in 0...n) {
+			var a = poly[i];
+			var b = poly[j];
+			if ((a.y > p.y) != (b.y > p.y) &&
+			    p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+				inside = !inside;
+			j = i;
+		}
+		return inside;
+	}
+
+	// A spot is free for terrain if it's on dry ground, outside every
+	// built-up patch, and not on a road.
+	private function terrainSpotFree( p:Point, model:Model ):Bool {
+		if ((model.seaShape != null || model.riverShape != null) && model.isWater( p ))
+			return false;
+
+		for (patch in model.patches)
+			if (patch.ward != null && patch.ward.geometry != null && patch.ward.geometry.length > 0 &&
+			    pointInPoly( p, patch.shape ))
+				return false;
+
+		if (model.arteries != null)
+			for (a in model.arteries)
+				for (i in 0...a.length - 1) {
+					var ax = a[i].x, ay = a[i].y;
+					var dx = a[i + 1].x - ax, dy = a[i + 1].y - ay;
+					var l2 = dx * dx + dy * dy;
+					if (l2 < 1e-9) continue;
+					var t = ((p.x - ax) * dx + (p.y - ay) * dy) / l2;
+					t = t < 0 ? 0 : (t > 1 ? 1 : t);
+					var ddx = p.x - (ax + dx * t), ddy = p.y - (ay + dy * t);
+					if (ddx * ddx + ddy * ddy < 36) return false;
+				}
+
+		return true;
+	}
+
+	// Scattered forest / mountains / swamp in a ring around the city.
+	private function drawTerrainScatter( g:Graphics, model:Model ):Void {
+		var cr = model.cityRadius;
+		var c = model.center;
+
+		var tries = terrain == 1 ? 700 : (terrain == 2 ? 280 : 450);
+		var spots:Array<Point> = [];
+		for (k in 0...tries) {
+			var ang = Random.float() * Math.PI * 2;
+			var rad = cr * (0.55 + Random.float() * 1.5);
+			var p = new Point( c.x + Math.cos( ang ) * rad, c.y + Math.sin( ang ) * rad );
+			if (terrainSpotFree( p, model ))
+				spots.push( p );
+		}
+
+		switch (terrain) {
+			case 1: // forest: clustered canopy blobs
+				var canopy = mix( advanced_palette.grass, 0x1E3320, 0.3 );
+				var lineC = mix( canopy, palette.dark, 0.5 );
+				for (p in spots) {
+					var blobs = 1 + Random.int( 0, 3 );
+					for (b in 0...blobs) {
+						var r = 1.6 + Random.float() * 2.2;
+						var ox = (Random.float() - 0.5) * r * 2.2;
+						var oy = (Random.float() - 0.5) * r * 2.2;
+						g.lineStyle( Brush.THIN_STROKE, lineC, 0.8 );
+						g.beginFill( canopy, 0.9 );
+						g.drawCircle( p.x + ox, p.y + oy, r );
+						g.endFill();
+					}
+				}
+
+			case 2: // mountains: shaded peaks, drawn back-to-front
+				spots.sort( function( a, b ) return a.y < b.y ? -1 : 1 );
+				var body = mix( palette.medium, palette.paper, 0.45 );
+				var shade = mix( palette.medium, palette.dark, 0.3 );
+				for (p in spots) {
+					var h = 5 + Random.float() * 9;
+					var w = h * (0.9 + Random.float() * 0.5);
+					var peakX = p.x + (Random.float() - 0.5) * w * 0.3;
+
+					g.lineStyle( Brush.THIN_STROKE * 1.5, palette.dark, 0.75 );
+					g.beginFill( body );
+					g.moveTo( p.x - w / 2, p.y );
+					g.lineTo( peakX, p.y - h );
+					g.lineTo( p.x + w / 2, p.y );
+					g.lineTo( p.x - w / 2, p.y );
+					g.endFill();
+
+					// shaded flank
+					g.lineStyle( 0, 0, 0 );
+					g.beginFill( shade, 0.85 );
+					g.moveTo( peakX, p.y - h );
+					g.lineTo( p.x + w / 2, p.y );
+					g.lineTo( peakX + w * 0.12, p.y );
+					g.lineTo( peakX, p.y - h );
+					g.endFill();
+				}
+
+			case 3: // swamp: grass tufts over damp speckles
+				var tuft = mix( advanced_palette.grass, 0x33441F, 0.45 );
+				var damp = advanced_palette.water;
+				for (p in spots) {
+					if (Random.bool( 0.5 )) {
+						g.lineStyle( 0, 0, 0 );
+						g.beginFill( damp, 0.28 );
+						g.drawEllipse( p.x - 3, p.y - 1.1, 6, 2.2 );
+						g.endFill();
+					}
+					g.lineStyle( Brush.THIN_STROKE, tuft, 0.95 );
+					var blades = 3 + Random.int( 0, 3 );
+					for (b in 0...blades) {
+						var bx = p.x + (b - blades / 2) * 0.8;
+						var lean = (Random.float() - 0.5) * 1.6;
+						var hh = 1.6 + Random.float() * 1.8;
+						g.moveTo( bx, p.y );
+						g.lineTo( bx + lean, p.y - hh );
+					}
+				}
+		}
+	}
+
+	// A giant cave: everything beyond the cave wall is rock-dark, with a
+	// jagged rim closing around the city.
+	private function drawCavern( g:Graphics, model:Model ):Void {
+		var cr = model.cityRadius;
+		var c = model.center;
+
+		// Jagged cave-wall rim (counter-clockwise, so it punches a hole in
+		// the clockwise dark surround under the nonzero fill rule).
+		var n = 56;
+		var rim:Array<Point> = [];
+		var radii:Array<Float> = [];
+		for (i in 0...n) {
+			var base = cr * 1.32;
+			var wob = 1 + (Random.float() - 0.5) * 0.24 + Math.sin( i * 2.7 ) * 0.05;
+			radii.push( base * wob );
+		}
+		// smooth the radii a touch so the rim reads as rock, not noise
+		for (pass in 0...2)
+			radii = [for (i in 0...n) (radii[(i + n - 1) % n] + radii[i] * 2 + radii[(i + 1) % n]) / 4];
+		for (i in 0...n) {
+			var a = -(i / n) * Math.PI * 2;	// negative: reverse winding
+			rim.push( new Point( c.x + Math.cos( a ) * radii[i], c.y + Math.sin( a ) * radii[i] ) );
+		}
+
+		var rock = mix( palette.dark, 0x000000, 0.45 );
+		var far = cr * 6;
+
+		g.lineStyle( 0, 0, 0 );
+		g.beginFill( rock );
+		// outer square, clockwise
+		g.moveTo( c.x - far, c.y - far );
+		g.lineTo( c.x + far, c.y - far );
+		g.lineTo( c.x + far, c.y + far );
+		g.lineTo( c.x - far, c.y + far );
+		g.lineTo( c.x - far, c.y - far );
+		// inner rim, reverse winding: the cave opening
+		g.moveTo( rim[0].x, rim[0].y );
+		for (i in 1...n)
+			g.lineTo( rim[i].x, rim[i].y );
+		g.lineTo( rim[0].x, rim[0].y );
+		g.endFill();
+
+		// the rock lip
+		g.lineStyle( Brush.THICK_STROKE * 1.2, palette.dark, 1 );
+		g.moveTo( rim[0].x, rim[0].y );
+		for (i in 1...n)
+			g.lineTo( rim[i].x, rim[i].y );
+		g.lineTo( rim[0].x, rim[0].y );
+
+		// stalactite teeth along the rim, pointing into the cave
+		g.lineStyle( 0, 0, 0 );
+		g.beginFill( rock );
+		var i = 0;
+		while (i < n) {
+			var p0 = rim[i];
+			var p1 = rim[(i + 1) % n];
+			var mx = (p0.x + p1.x) / 2, my = (p0.y + p1.y) / 2;
+			var inx = c.x - mx, iny = c.y - my;
+			var il = Math.sqrt( inx * inx + iny * iny );
+			var tl = cr * (0.03 + Random.float() * 0.05);
+			g.moveTo( p0.x, p0.y );
+			g.lineTo( mx + inx / il * tl, my + iny / il * tl );
+			g.lineTo( p1.x, p1.y );
+			g.lineTo( p0.x, p0.y );
+			i += 1 + Random.int( 0, 2 );
+		}
+		g.endFill();
 	}
 }

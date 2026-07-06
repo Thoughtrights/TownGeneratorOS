@@ -11,7 +11,7 @@ to run this code, both available through `haxelib`.
 `sudo lime build html5`
 
 ## Example Query Arguments
-`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0&parks=2&temples=1&palette=4&sketchy=1&roofs=1&farms=8&towers=4&river=1&coast=1`
+`/?size=66&seed=7331619330&walls=1&markets=0&citadel=1&trans=1&menu=0&tooltips=0&parks=2&temples=1&palette=4&sketchy=1&roofs=1&farms=8&towers=4&river=1&coast=1&terrain=1`
 
 ## Query Arguments
 
@@ -26,11 +26,13 @@ to run this code, both available through `haxelib`.
 | `temples` | `0` / `1` | Whether the city has a main temple. `1` (default) guarantees one, placed as close to the plaza as possible; `0` removes it entirely. |
 | `farms` | `0`, `1`, `2`, ... | Exact number of countryside patches to turn into farms (not just a fixed per-patch chance). `0` removes them entirely. Default `6`. See below for how they're drawn. |
 | `palette` | `0`-`9` | Color palette. `0` (or omitted) is the current default look; `1`-`9` select one of nine earth-tone/architectural-diagram palettes (see below). |
-| `sketchy` | `0`-`5` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. `0` (default) disables it; higher values make it progressively wavier and more displaced. Works with every palette. |
+| `sketchy` | `0`-`5` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. `0` (default) disables it; higher values make it progressively wavier. The scale is finer than it used to be (today's `5` equals the old `2`), and sloppiness varies by district — slums are scrawled, patrician wards and the castle are drawn with care. |
 | `roofs` | `0` / `1` | Gable-roof lines on each building: a ridge line down its long axis, plus a few short rafters perpendicular to it on one side only. Works with every palette, and combines with `sketchy`. |
 | `towers` | `0`-`4` | Wall tower shape. `0` (default) round; `1` square (flat face pointing outward); `2` hexagon (vertex pointing outward); `3` round with a few little spikes on the outward-facing side; `4` a random mix of the above per tower. |
 | `river` | `0` / `1` | `1` runs a gently bending river through the city, with the built-up area on both banks joined by short bridges where the streets cross. Default `0`. See below. |
-| `coast` | `0` / `1` | `1` puts the city on a coast: an open harbour front with I/L-shaped docks reaching into the water and districts right on the waterline. Default `0`. `river=1&coast=1` makes an estuary. See below. |
+| `coast` | `0` / `1` | `1` puts the city on a coast: an open harbour front with narrow I/L/T-shaped plank docks reaching into the water and districts right on the waterline. Default `0`. `river=1&coast=1` makes an estuary. See below. |
+| `terrain` | `0`-`4` | Surrounding terrain. `0` (default) none; `1` forest (clustered tree canopies); `2` mountains (shaded peaks); `3` swamp (grass tufts and damp pools); `4` cavern — the whole city sits inside a giant cave, rock-dark beyond a jagged rim. Scatter avoids water, roads, farms, and buildings. |
+| `maxpage` | pixels | Cap the page: the map canvas never exceeds this many CSS pixels on a side. `0` (default) fills the window. |
 | `trans` | `0` / `1` | Transparent background instead of the palette's paper color. |
 | `menu` | `0` / `1` | Show/hide the city-size selection buttons. |
 | `tooltips` | `0` / `1` | Show/hide ward tooltips. |
@@ -48,7 +50,7 @@ Farm patches get a faint tint over the whole plot plus a few furrow lines parall
 Water is drawn as a solid, per-palette-harmonized colour (a slate blue on the default palette, muted teal/blue-grey on the earth-tone ones) so it reads clearly against the land. It's a geometric overlay rather than removed map cells: the patch layout underneath is left intact, so walls stay complete and streets route normally. The water is drawn over open ground and farmland, and anything solid that meets it is handled cleanly — individual houses that straddle the bank are clipped away (so buildings hug the waterline instead of whole blocks being deleted), the wall opens where it crosses the water, and no building, wall, tower, road, or street is ever drawn over open water.
 
 - **`river=1`** lays a gently bending river, 4–10× the width of a road, through the city, bisecting the built-up area with districts on both banks. Streets cross it on short **bridges** laid perpendicular to the flow (the shortest span) wherever a road genuinely crosses; the wall opens into a water-gate on each bank where the river passes through it.
-- **`coast=1`** puts the seaward side of the map under water, with a gently wavy shoreline the land clips against exactly, so a broad arc of districts sits right on the waterline. The city wall opens along the waterfront (a quay) instead of walling off the sea, and narrow **I/L-shaped docks** reach out from the harbour into the water.
+- **`coast=1`** puts the seaward side of the map under water, with a gently wavy shoreline the land clips against exactly, so a broad arc of districts sits right on the waterline. The city wall opens along the waterfront (a quay) instead of walling off the sea, and narrow plank **docks** — straight fingers, right-angled Ls, and T-heads, with plank texture — reach out from the harbour into the sea. Where a wall meets the water it stops at the bank with a tower, on both banks.
 - **`river=1&coast=1`** aims the river at the sea so it becomes an estuary: the river widens toward its mouth and merges seamlessly into the sea (no line between the two), with the city sitting at the junction.
 
 ### Palettes
@@ -65,12 +67,11 @@ Water is drawn as a solid, per-palette-harmonized colour (a slate blue on the de
 8. Clay & Cream — soft adobe/Mediterranean tones
 9. Graphite — monochrome minimalist diagram
 
+### Districts
+
+Each district type carries a slight identifying tint blended into its building fill — gold for merchants, plum for the patriciate, steel for the military, blue-grey for administration, drab for the slums — so neighbourhoods read differently at a glance without breaking the palette.
+
 ## To Do
 
-* Add district coloration
-* Change Sketchy to be 0,1,2
-* Add surrounding trees
-* Add surrounding mountains
-* Add surrounding swamps
-* Allow the city or town to be in a giant cavern
-
+* Consider a dedicated dockside/harbour ward type that sits on the coast
+* Options UI

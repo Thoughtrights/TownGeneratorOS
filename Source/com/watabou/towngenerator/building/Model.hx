@@ -298,31 +298,16 @@ class Model {
 		return distToPath( p, riverPath ) < half + 1;
 	}
 
-	// A thin rectangular plank (a dock section) from a to b.
-	private function plankPoly( a:Point, b:Point, halfW:Float ):Polygon {
-		var dx = b.x - a.x;
-		var dy = b.y - a.y;
-		var l = Math.sqrt( dx * dx + dy * dy );
-		if (l < 1e-4) l = 1;
-		var nx = -dy / l * halfW;
-		var ny = dx / l * halfW;
-		return new Polygon( [
-			new Point( a.x + nx, a.y + ny ),
-			new Point( b.x + nx, b.y + ny ),
-			new Point( b.x - nx, b.y - ny ),
-			new Point( a.x - nx, a.y - ny )
-		] );
-	}
-
-	// Narrow I- and L-shaped docks reaching from the harbour shore into the
-	// water, near the city centre. Each starts just landward of the waterline
-	// so it reads as attached to the shore-front buildings.
+	// Narrow piers reaching from the harbour shore into the sea, near the
+	// city centre. Each is stored as an open polyline (a stroke skeleton the
+	// renderer draws as thin planking): a straight I, a right-angled L, or —
+	// with a separate crossbar entry — a T. Docks only ever stand in the
+	// sea, never up the river.
 	private function buildDocks( cr:Float ):Void {
 		docks = [];
 		if (coastDir == null) return;		// harbour is on the open sea
 
 		var shoreVec = coastDir.rotate90();
-		var w = Math.max( 1.5, cr * 0.012 );		// half-width of a plank
 
 		var wanted = 5 + Random.int( 0, 4 );
 		for (k in 0...wanted) {
@@ -336,24 +321,35 @@ class Model {
 			for (s in 0...stepN) {
 				var d = s / stepN * cr * 2.2;
 				var p = new Point( from.x + coastDir.x * d, from.y + coastDir.y * d );
-				if (isWater( p )) { hit = true; break; }
+				if (inSea( p )) { hit = true; break; }
+				if (inRiver( p )) { hit = false; break; }	// river bank: no pier here
 				waterline = p;
 			}
 			if (!hit || waterline == null || Point.distance( waterline, center ) > cr * 1.3)
 				continue;
 
-			// the plank: from just landward of the waterline out into the water
-			var len = cr * (0.05 + Random.float() * 0.06);
+			// the spine: from just landward of the waterline out into the sea
+			var len = cr * (0.055 + Random.float() * 0.06);
 			var base = new Point( waterline.x - coastDir.x * cr * 0.02, waterline.y - coastDir.y * cr * 0.02 );
 			var tip  = new Point( waterline.x + coastDir.x * len, waterline.y + coastDir.y * len );
-			docks.push( plankPoly( base, tip, w ) );
 
-			// sometimes an L: a short crossbar at the seaward end
-			if (Random.bool( 0.4 )) {
-				var arm = w * (3 + Random.float() * 2);
+			var style = Random.float();
+			if (style < 0.4) {
+				// I: plain finger pier
+				docks.push( [base, tip] );
+			} else if (style < 0.75) {
+				// L: the spine turns a right angle at its seaward end
+				var arm = len * (0.35 + Random.float() * 0.3);
 				var side = Random.bool() ? 1.0 : -1.0;
-				var b1 = new Point( tip.x + shoreVec.x * arm * side, tip.y + shoreVec.y * arm * side );
-				docks.push( plankPoly( tip, b1, w ) );
+				docks.push( [base, tip,
+					new Point( tip.x + shoreVec.x * arm * side, tip.y + shoreVec.y * arm * side )] );
+			} else {
+				// T: a crossbar centred on the seaward end
+				var arm = len * (0.3 + Random.float() * 0.25);
+				docks.push( [base, tip] );
+				docks.push( [
+					new Point( tip.x - shoreVec.x * arm, tip.y - shoreVec.y * arm ),
+					new Point( tip.x + shoreVec.x * arm, tip.y + shoreVec.y * arm )] );
 			}
 		}
 	}
@@ -466,65 +462,89 @@ class Model {
 		var width = Ward.MAIN_STREET * (4 + Random.float() * 6);
 		riverHalf = width / 2;
 
-		// General flow direction across the map. With a coast, aim roughly out
-		// to sea so the river reads as an estuary at the junction.
-		var flowA = coastDir != null ? Math.atan2( coastDir.y, coastDir.x ) + (Random.float() - 0.5) * 0.7 : Random.float() * 2 * Math.PI;
-		var dir = new Point( Math.cos( flowA ), Math.sin( flowA ) );
-		var perp = dir.rotate90();
-		// Run it through the city (near the centre) so it genuinely bisects
-		// the built-up area, with the two banks joined by bridges. A modest
-		// offset keeps the plaza on one side.
-		var side = Random.bool() ? 1.0 : -1.0;
-		var offset = side * (0.05 + Random.float() * 0.28) * cr;
+		// The river must never swallow the citadel or the plaza — try a
+		// handful of layouts (varying course and offset); if none stays
+		// clear, throw so the whole city rerolls (standard retry loop).
+		for (attempt in 0...8) {
+			// General flow direction across the map. With a coast, aim roughly
+			// out to sea so the river reads as an estuary at the junction.
+			var flowA = coastDir != null ? Math.atan2( coastDir.y, coastDir.x ) + (Random.float() - 0.5) * 0.7 : Random.float() * 2 * Math.PI;
+			var dir = new Point( Math.cos( flowA ), Math.sin( flowA ) );
+			var perp = dir.rotate90();
+			// Run it through the city (near the centre) so it genuinely bisects
+			// the built-up area, with the two banks joined by bridges. A modest
+			// offset keeps the plaza on one side.
+			var side = Random.bool() ? 1.0 : -1.0;
+			var offset = side * (0.05 + Random.float() * 0.28) * cr;
 
-		var thru = new Point( center.x + perp.x * offset, center.y + perp.y * offset );
+			var thru = new Point( center.x + perp.x * offset, center.y + perp.y * offset );
 
-		// A few control points from one edge of the map to the other, each
-		// nudged sideways for gentle bends.
-		var reach = cr * 2.8;
-		var n = 6;
-		var ctrl:Array<Point> = [];
-		for (i in 0...n + 1) {
-			var s = -reach + (2 * reach) * i / n;
-			var bend = (Random.float() - 0.5) * cr * 0.5;
-			ctrl.push( new Point(
-				thru.x + dir.x * s + perp.x * bend,
-				thru.y + dir.y * s + perp.y * bend
-			) );
-		}
-
-		// Subdivide and smooth (open polyline, endpoints fixed) into a
-		// flowing centreline.
-		var dense:Array<Point> = [];
-		for (i in 0...ctrl.length - 1) {
-			var a = ctrl[i];
-			var b = ctrl[i + 1];
-			var steps = 4;
-			for (k in 0...steps)
-				dense.push( GeomUtils.interpolate( a, b, k / steps ) );
-		}
-		dense.push( ctrl[ctrl.length - 1] );
-
-		for (pass in 0...3)
-			dense = smoothOpen( dense );
-		riverPath = dense;
-
-		// Per-vertex half-width: constant upstream, flaring toward the sea end
-		// so the river opens into a broad mouth at an estuary.
-		var m = riverPath.length;
-		var halves = [for (i in 0...m) riverHalf];
-		if (coastDir != null) {
-			// Which end runs out to sea (further along coastDir)
-			var seaAtEnd = seaProj( riverPath[m - 1] ) > seaProj( riverPath[0] );
-			for (i in 0...m) {
-				var t = seaAtEnd ? i / (m - 1) : 1 - i / (m - 1);	// 0 upstream .. 1 at sea
-				var flare = t < 0.55 ? 0.0 : (t - 0.55) / 0.45;		// last ~45% widens
-				halves[i] = riverHalf * (1 + 1.7 * flare);
+			// A few control points from one edge of the map to the other, each
+			// nudged sideways for gentle bends.
+			var reach = cr * 2.8;
+			var n = 6;
+			var ctrl:Array<Point> = [];
+			for (i in 0...n + 1) {
+				var s = -reach + (2 * reach) * i / n;
+				var bend = (Random.float() - 0.5) * cr * 0.5;
+				ctrl.push( new Point(
+					thru.x + dir.x * s + perp.x * bend,
+					thru.y + dir.y * s + perp.y * bend
+				) );
 			}
+
+			// Subdivide and smooth (open polyline, endpoints fixed) into a
+			// flowing centreline.
+			var dense:Array<Point> = [];
+			for (i in 0...ctrl.length - 1) {
+				var a = ctrl[i];
+				var b = ctrl[i + 1];
+				var steps = 4;
+				for (k in 0...steps)
+					dense.push( GeomUtils.interpolate( a, b, k / steps ) );
+			}
+			dense.push( ctrl[ctrl.length - 1] );
+
+			for (pass in 0...3)
+				dense = smoothOpen( dense );
+
+			// Per-vertex half-width: constant upstream, flaring toward the sea
+			// end so the river opens into a broad mouth at an estuary.
+			var m = dense.length;
+			var halves = [for (i in 0...m) riverHalf];
+			if (coastDir != null) {
+				// Which end runs out to sea (further along coastDir)
+				var seaAtEnd = seaProj( dense[m - 1] ) > seaProj( dense[0] );
+				for (i in 0...m) {
+					var t = seaAtEnd ? i / (m - 1) : 1 - i / (m - 1);	// 0 upstream .. 1 at sea
+					var flare = t < 0.55 ? 0.0 : (t - 0.55) / 0.45;		// last ~45% widens
+					halves[i] = riverHalf * (1 + 1.7 * flare);
+				}
+			}
+
+			// Clearance check: the river (at its widest anywhere, i.e. the
+			// estuary flare if there is one) must keep a margin from the
+			// citadel and the plaza.
+			var maxHalf = riverHalf;
+			for (h in halves) if (h > maxHalf) maxHalf = h;
+			var clearance = maxHalf * 1.2 + 3;
+			var blocked = false;
+			if (citadel != null)
+				for (v in citadel.shape)
+					if (distToPath( v, dense ) < clearance) { blocked = true; break; }
+			if (!blocked && plaza != null)
+				if (distToPath( plaza.shape.centroid, dense ) < clearance)
+					blocked = true;
+
+			if (blocked) continue;
+
+			riverPath = dense;
+			riverHalves = halves;
+			riverShape = buildRibbon( riverPath, halves );
+			return;
 		}
 
-		riverHalves = halves;
-		riverShape = buildRibbon( riverPath, halves );
+		throw new Error( "River can't avoid the citadel/plaza!" );
 	}
 
 	// Nearest land patch vertex to a point (used to anchor a bridge deck to
@@ -649,43 +669,84 @@ class Model {
 	// Once the streets exist, drop a bridge deck wherever a road crosses the
 	// river. Each deck is laid perpendicular to the river (the shortest
 	// possible span) and centred on the centreline — so it always reads short
-	// and square, whatever angle the road approaches at. A crossing is a road
-	// segment whose ends sit on opposite banks (or that lies in the water); a
-	// road merely running along a bank never flips sides, so it isn't bridged.
+	// and square, whatever angle the road approaches at.
+	//
+	// Crossings are found by walking each artery in small steps and watching
+	// for stretches that dip into the river with land on both sides — robust
+	// against any segment length or river curvature (a side-of-centreline
+	// test can miss real crossings near sharp bends). A road that merely
+	// *ends* in the water (clipped at the bank) is not a crossing. Decks are
+	// kept apart, capped in number, and never attempted across a flared
+	// estuary mouth (too wide to bridge — the road stops at the bank).
 	public function placeBridges():Void {
 		bridges = [];
 		if (riverPath == null || arteries == null) return;
 
 		var margin = Math.max( 3, cityR * 0.03 );
+		var maxBridges = 5;
+		var maxBridgeHalf = riverHalf * 1.35;	// wider than this (estuary mouth): no bridge
+		var step = 2.0;
 
+		// Sample every artery densely, remembering the on-land samples: a
+		// bridge only goes where there's road on both banks to serve it.
+		var landSamples:Array<Point> = [];
+		var wetSamples:Array<Point> = [];
 		for (a in arteries)
 			for (i in 0...a.length - 1) {
 				var p0 = a[i];
 				var p1 = a[i + 1];
-				var mid = new Point( (p0.x + p1.x) / 2, (p0.y + p1.y) / 2 );
-
-				var s0 = riverSide( p0 );
-				var s1 = riverSide( p1 );
-				var crosses = (s0 != 0 && s1 != 0 && s0 != s1) || inRiver( mid );
-				if (!crosses) continue;
-
-				var near = nearestOnRiver( mid );
-
-				var dup = false;
-				for (br in bridges) {
-					var bm = new Point( (br[0].x + br[1].x) / 2, (br[0].y + br[1].y) / 2 );
-					if (Point.distance( bm, near.c ) < near.half * 2.5) { dup = true; break; }
+				var d = Point.distance( p0, p1 );
+				var n = Math.ceil( d / step );
+				for (k in 0...Std.int( n ) + 1) {
+					var p = GeomUtils.interpolate( p0, p1, k / n );
+					if (inRiver( p ))
+						wetSamples.push( p )
+					else
+						landSamples.push( p );
 				}
-				if (dup) continue;
-
-				// Deck square across the river, centred on the centreline.
-				var perp = new Point( -near.dir.y, near.dir.x );
-				var reach = near.half + margin;
-				bridges.push( [
-					new Point( near.c.x + perp.x * reach, near.c.y + perp.y * reach ),
-					new Point( near.c.x - perp.x * reach, near.c.y - perp.y * reach )
-				] );
 			}
+
+		// A crossing must be usable from both banks. (An artery is often
+		// chained so that it *ends* mid-river and another one continues on
+		// the far side, so bridgeability is judged geometrically per wet
+		// spot, not within any single artery.)
+		var serveDist = riverHalf * 1.6 + margin * 2;
+		for (wp in wetSamples) {
+			if (bridges.length >= maxBridges) break;
+
+			var near = nearestOnRiver( wp );
+
+			// Too wide to bridge (flared estuary mouth)
+			if (near.half > maxBridgeHalf) continue;
+
+			// Keep decks well apart
+			var dup = false;
+			for (br in bridges) {
+				var bm = new Point( (br[0].x + br[1].x) / 2, (br[0].y + br[1].y) / 2 );
+				if (Point.distance( bm, near.c ) < Math.max( near.half * 3, riverHalf * 4 )) { dup = true; break; }
+			}
+			if (dup) continue;
+
+			// Deck square across the river, centred on the centreline.
+			var perp = new Point( -near.dir.y, near.dir.x );
+			var reach = near.half + margin;
+			var endA = new Point( near.c.x + perp.x * reach, near.c.y + perp.y * reach );
+			var endB = new Point( near.c.x - perp.x * reach, near.c.y - perp.y * reach );
+
+			// Both ends must land on solid ground...
+			if (isWater( endA ) || isWater( endB )) continue;
+
+			// ...with road nearby on each bank.
+			var servedA = false, servedB = false;
+			for (lp in landSamples) {
+				if (!servedA && Point.distance( lp, endA ) < serveDist) servedA = true;
+				if (!servedB && Point.distance( lp, endB ) < serveDist) servedB = true;
+				if (servedA && servedB) break;
+			}
+			if (!servedA || !servedB) continue;
+
+			bridges.push( [endA, endB] );
+		}
 	}
 
 	// Turns a polyline into a closed ribbon polygon, offsetting each vertex
@@ -730,9 +791,11 @@ class Model {
 
 			// On the main wall, never open the stretch where it meets the
 			// citadel, or it would stop short of the castle instead of
-			// wrapping around to connect to it. (The castle's own wall is
-			// exempt — it should open at the water like any other wall.)
-			if (open && !isCastle && citadel != null) {
+			// wrapping around to connect to it — but only on land: a wall
+			// edge standing in the open sea is never kept, even next to a
+			// castle (that's how castle-side walls ended up striding out
+			// into the harbour). The castle's own wall is exempt entirely.
+			if (open && !isCastle && citadel != null && !inSea( mid )) {
 				for (cv in citadel.shape)
 					if (Point.distance( mid, cv ) < cityR * 0.22) { open = false; break; }
 			}
@@ -846,6 +909,20 @@ class Model {
 			var end:Point = plaza != null ?
 				plaza.shape.min( function( v ) return Point.distance( v, gate ) ) :
 				center;
+
+			// optimizeJunctions may have merged the endpoint's exact vertex
+			// away (its Point no longer sits in any shape, so it has no
+			// topology node) — snap to the nearest node that exists, or no
+			// street can ever be built to it.
+			if (topology.pt2node[end] == null) {
+				var best:Point = null;
+				var bd = Math.POSITIVE_INFINITY;
+				for (p in topology.node2pt) {
+					var d = Point.distance( p, end );
+					if (d < bd) { bd = d; best = p; }
+				}
+				if (best != null) end = best;
+			}
 
 			var street = topology.buildPath( gate, end, topology.outer );
 			if (street != null) {
