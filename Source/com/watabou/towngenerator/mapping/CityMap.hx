@@ -726,16 +726,40 @@ class CityMap extends Sprite {
 		return inside;
 	}
 
+	// Cached built-up patch shapes with bounding boxes, so the tens of
+	// thousands of terrain ground checks stay cheap.
+	private var tShapes:Array<Polygon>;
+	private var tBB:Array<Float>;
+
 	// A spot is free for terrain if it's on dry ground, outside every
 	// built-up patch, and not on a road.
 	private function terrainSpotFree( p:Point, model:Model ):Bool {
 		if ((model.seaShape != null || model.riverShape != null) && model.isWater( p ))
 			return false;
 
-		for (patch in model.patches)
-			if (patch.ward != null && patch.ward.geometry != null && patch.ward.geometry.length > 0 &&
-			    pointInPoly( p, patch.shape ))
+		if (tShapes == null) {
+			tShapes = [];
+			tBB = [];
+			for (patch in model.patches)
+				if (patch.ward != null && patch.ward.geometry != null && patch.ward.geometry.length > 0) {
+					tShapes.push( patch.shape );
+					var x0 = Math.POSITIVE_INFINITY, y0 = Math.POSITIVE_INFINITY;
+					var x1 = Math.NEGATIVE_INFINITY, y1 = Math.NEGATIVE_INFINITY;
+					for (v in patch.shape) {
+						if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
+						if (v.y < y0) y0 = v.y; if (v.y > y1) y1 = v.y;
+					}
+					tBB.push( x0 ); tBB.push( y0 ); tBB.push( x1 ); tBB.push( y1 );
+				}
+		}
+
+		for (si in 0...tShapes.length) {
+			var b = si * 4;
+			if (p.x < tBB[b] || p.y < tBB[b + 1] || p.x > tBB[b + 2] || p.y > tBB[b + 3])
+				continue;
+			if (pointInPoly( p, tShapes[si] ))
 				return false;
+		}
 
 		if (model.arteries != null)
 			for (a in model.arteries)
@@ -869,16 +893,19 @@ class CityMap extends Sprite {
 		}
 	}
 
-	// Mountains as a real elevation model: a handful of elongated bumps
-	// (substantial massifs plus smaller outcroppings) summed into one
-	// heightfield, whose contour lines are traced as level-sets with
-	// marching squares. Because every ring is a level of the same summed
-	// field, overlapping rises merge additively into one contour system —
-	// nested rings can never cross, exactly like a survey map.
+	// Mountains as a real elevation model, shaded like a relief map: a
+	// few bumps of very different scales are summed into one heightfield,
+	// and each elevation band is FILLED bottom-up with hypsometric tints
+	// (green lowlands, tan and ochre slopes, grey and near-white summits),
+	// traced with filled marching squares. Because every band is a level
+	// of the same summed field, neighbouring rises merge additively and
+	// bands can never overlap. Small bumps only ever reach the green
+	// bands (hilly mounds); the great massifs — larger than the city and
+	// anchored far out so only their flanks enter the view — climb the
+	// whole ramp to the pale summits.
 	private function drawTopoMountains( g:Graphics, model:Model, cr:Float, c:Point ):Void {
-		var lineC = mix( palette.dark, palette.medium, 0.25 );
 
-		// --- the bumps ---
+		// --- the bumps, in three scale classes ---
 		var bumps:Array<{x:Float, y:Float, a:Float, b:Float, ct:Float, st:Float, h:Float, ph:Float}> = [];
 		function addBump( band0:Float, band1:Float, r0:Float, r1:Float, h0:Float ):Void {
 			var mc = freeSpot( model, cr, c, band0, band1 );
@@ -894,14 +921,17 @@ class CityMap extends Sprite {
 			} );
 		}
 
-		var big = 5 + Random.int( 0, 2 );
-		for (i in 0...big) addBump( 0.95, 1.75, 0.3, 0.55, 1.0 );
-		var small = 5 + Random.int( 0, 3 );
-		for (i in 0...small) addBump( 0.7, 1.9, 0.1, 0.18, 0.55 );
+		// great massifs: bigger than the city, mostly beyond the frame
+		var big = 2 + Random.int( 0, 2 );
+		for (i in 0...big) addBump( 1.7, 2.7, 1.2, 2.6, 1.15 );
+		// mid-size mountains
+		var mid = 3 + Random.int( 0, 2 );
+		for (i in 0...mid) addBump( 1.15, 2.1, 0.4, 0.8, 0.55 );
+		// low hills: green mounds only
+		var small = 4 + Random.int( 0, 3 );
+		for (i in 0...small) addBump( 0.7, 1.9, 0.15, 0.3, 0.3 );
 		if (bumps.length == 0) return;
 
-		// summed elevation, with a gentle angular wobble per bump so the
-		// contours read as landform rather than perfect ellipses
 		function field( px:Float, py:Float ):Float {
 			var f = 0.0;
 			for (bp in bumps) {
@@ -916,56 +946,173 @@ class CityMap extends Sprite {
 			return f;
 		}
 
-		// --- the grid over the bumps' extent ---
+		// --- the grid, clipped to a window around the view ---
+		var win = cr * 3.3;
 		var minX = Math.POSITIVE_INFINITY, minY = Math.POSITIVE_INFINITY;
 		var maxX = Math.NEGATIVE_INFINITY, maxY = Math.NEGATIVE_INFINITY;
 		for (bp in bumps) {
 			minX = Math.min( minX, bp.x - bp.a * 1.6 ); maxX = Math.max( maxX, bp.x + bp.a * 1.6 );
 			minY = Math.min( minY, bp.y - bp.a * 1.6 ); maxY = Math.max( maxY, bp.y + bp.a * 1.6 );
 		}
+		minX = Math.max( minX, c.x - win ); maxX = Math.min( maxX, c.x + win );
+		minY = Math.max( minY, c.y - win ); maxY = Math.min( maxY, c.y + win );
+		if (minX >= maxX || minY >= maxY) return;
 
-		var cell = cr / 34;
+		var cell = cr / 30;
 		var nx = Std.int( Math.ceil( (maxX - minX) / cell ) ) + 1;
 		var ny = Std.int( Math.ceil( (maxY - minY) / cell ) ) + 1;
-		if (nx < 2 || ny < 2 || nx * ny > 160000) return;
+		if (nx < 2 || ny < 2) return;
 
 		var F = new Array<Float>();
 		for (j in 0...ny)
 			for (i in 0...nx)
 				F.push( field( minX + i * cell, minY + j * cell ) );
 
-		// lazily-computed ground freedom per cell, so contours stop at the
-		// city, roads, farms and water instead of running over them
+		// For the relief fills only water and actual buildings block a
+		// cell: farms and roads draw over the terrain layer anyway, and
+		// blocking them would gnaw jagged staircases into the bands.
+		var mShapes:Array<Polygon> = [];
+		var mBB:Array<Float> = [];
+		for (patch in model.patches)
+			if (patch.ward != null && patch.ward.geometry != null && patch.ward.geometry.length > 0 &&
+			    Type.getClass( patch.ward ) != Farm) {
+				mShapes.push( patch.shape );
+				var bx0 = Math.POSITIVE_INFINITY, by0 = Math.POSITIVE_INFINITY;
+				var bx1 = Math.NEGATIVE_INFINITY, by1 = Math.NEGATIVE_INFINITY;
+				for (v in patch.shape) {
+					if (v.x < bx0) bx0 = v.x; if (v.x > bx1) bx1 = v.x;
+					if (v.y < by0) by0 = v.y; if (v.y > by1) by1 = v.y;
+				}
+				mBB.push( bx0 ); mBB.push( by0 ); mBB.push( bx1 ); mBB.push( by1 );
+			}
+
+		var hasWater = model.seaShape != null || model.riverShape != null;
 		var free = new Array<Int>();
 		for (k in 0...nx * ny) free.push( -1 );
 		function cellFree( i:Int, j:Int ):Bool {
 			var k = j * nx + i;
-			if (free[k] == -1)
-				free[k] = terrainSpotFree( new Point( minX + (i + 0.5) * cell, minY + (j + 0.5) * cell ), model ) ? 1 : 0;
+			if (free[k] == -1) {
+				var pt = new Point( minX + (i + 0.5) * cell, minY + (j + 0.5) * cell );
+				var ok = !(hasWater && model.isWater( pt ));
+				if (ok)
+					for (si in 0...mShapes.length) {
+						var b = si * 4;
+						if (pt.x < mBB[b] || pt.y < mBB[b + 1] || pt.x > mBB[b + 2] || pt.y > mBB[b + 3])
+							continue;
+						if (pointInPoly( pt, mShapes[si] )) { ok = false; break; }
+					}
+				free[k] = ok ? 1 : 0;
+			}
 			return free[k] == 1;
 		}
 
-		// --- marching squares, one pass per contour level ---
-		var levels = [0.16, 0.28, 0.4, 0.52, 0.64, 0.76, 0.88];
-		g.lineStyle( Brush.THIN_STROKE * 1.7, lineC, 0.9 );
+		// --- hypsometric tints, low to high, harmonized with the palette ---
+		var levels = [0.13, 0.25, 0.37, 0.49, 0.61, 0.73, 0.85, 0.94];
+		var ramp = [
+			mix( 0x8FB07E, palette.paper, 0.3 ),
+			mix( 0xB4C48D, palette.paper, 0.22 ),
+			mix( 0xD6CD9C, palette.paper, 0.15 ),
+			mix( 0xE0C285, palette.paper, 0.1 ),
+			0xD8A96F,
+			0xC0997A,
+			0xB1ABA5,
+			0xECEAE6
+		];
+		var lineC = mix( palette.dark, palette.medium, 0.35 );
 
-		for (L in levels)
+		// One filled pass per band, painted bottom-up so each higher band
+		// sits on the one below. Interior runs of fully-covered cells merge
+		// into single rectangles; boundary cells contribute the exact
+		// clipped polygon, so band edges are smooth.
+		for (li in 0...levels.length) {
+			var L = levels[li];
+			g.lineStyle( 0, 0, 0 );
+			g.beginFill( ramp[li] );
+
+			for (j in 0...ny - 1) {
+				var y0 = minY + j * cell;
+				var y1 = y0 + cell;
+				var runStart = -1;
+
+				inline function flushRun( endI:Int ):Void {
+					if (runStart != -1) {
+						g.drawRect( minX + runStart * cell, y0, (endI - runStart) * cell, cell );
+						runStart = -1;
+					}
+				}
+
+				for (i in 0...nx - 1) {
+					var f00 = F[j * nx + i],       f10 = F[j * nx + i + 1];
+					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
+					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
+
+					if (idx == 0 || !cellFree( i, j )) { flushRun( i ); continue; }
+					if (idx == 15) { if (runStart == -1) runStart = i; continue; }
+					flushRun( i );
+
+					var x0 = minX + i * cell;
+					var x1 = x0 + cell;
+
+					inline function lerpT( fa:Float, fb:Float ):Float
+						return fa == fb ? 0.5 : (L - fa) / (fb - fa);
+					var top    = new Point( x0 + lerpT( f00, f10 ) * cell, y0 );
+					var bottom = new Point( x0 + lerpT( f01, f11 ) * cell, y1 );
+					var left   = new Point( x0, y0 + lerpT( f00, f01 ) * cell );
+					var right  = new Point( x1, y0 + lerpT( f10, f11 ) * cell );
+					var TL = new Point( x0, y0 ), TR = new Point( x1, y0 );
+					var BR = new Point( x1, y1 ), BL = new Point( x0, y1 );
+
+					inline function poly( pts:Array<Point> ):Void {
+						g.moveTo( pts[0].x, pts[0].y );
+						for (q in 1...pts.length)
+							g.lineTo( pts[q].x, pts[q].y );
+						g.lineTo( pts[0].x, pts[0].y );
+					}
+
+					var centerAbove = (f00 + f10 + f01 + f11) / 4 > L;
+					switch (idx) {
+						case 1:  poly( [TL, top, left] );
+						case 2:  poly( [top, TR, right] );
+						case 3:  poly( [TL, TR, right, left] );
+						case 4:  poly( [right, BR, bottom] );
+						case 5:
+							if (centerAbove) poly( [TL, top, right, BR, bottom, left] );
+							else { poly( [TL, top, left] ); poly( [right, BR, bottom] ); }
+						case 6:  poly( [top, TR, BR, bottom] );
+						case 7:  poly( [TL, TR, BR, bottom, left] );
+						case 8:  poly( [left, bottom, BL] );
+						case 9:  poly( [TL, top, bottom, BL] );
+						case 10:
+							if (centerAbove) poly( [top, TR, right, bottom, BL, left] );
+							else { poly( [top, TR, right] ); poly( [left, bottom, BL] ); }
+						case 11: poly( [TL, TR, right, bottom, BL] );
+						case 12: poly( [right, BR, BL, left] );
+						case 13: poly( [TL, top, right, BR, BL] );
+						case 14: poly( [top, TR, BR, BL, left] );
+						default:
+					}
+				}
+				flushRun( nx - 1 );
+			}
+			g.endFill();
+		}
+
+		// A whisper of contour line on each band edge to keep the map feel
+		g.lineStyle( Brush.THIN_STROKE, lineC, 0.25 );
+		for (li in 1...levels.length) {
+			var L = levels[li];
 			for (j in 0...ny - 1)
 				for (i in 0...nx - 1) {
 					var f00 = F[j * nx + i],       f10 = F[j * nx + i + 1];
 					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
-
-					// skip cells fully above/below this level
 					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
 					if (idx == 0 || idx == 15) continue;
 					if (!cellFree( i, j )) continue;
 
 					var x0 = minX + i * cell, y0 = minY + j * cell;
 					var x1 = x0 + cell,       y1 = y0 + cell;
-
-					// interpolated crossings on each cell edge
 					inline function lerpT( fa:Float, fb:Float ):Float
-						return (L - fa) / (fb - fa);
+						return fa == fb ? 0.5 : (L - fa) / (fb - fa);
 					var top    = new Point( x0 + lerpT( f00, f10 ) * cell, y0 );
 					var bottom = new Point( x0 + lerpT( f01, f11 ) * cell, y1 );
 					var left   = new Point( x0, y0 + lerpT( f00, f01 ) * cell );
@@ -976,12 +1123,7 @@ class CityMap extends Sprite {
 						g.lineTo( b.x, b.y );
 					}
 
-					// The two saddle cases (5 and 10) are ambiguous: which pair
-					// of corners the ridge connects depends on the elevation at
-					// the cell centre. Picking wrong draws crossing segments, so
-					// contours from two merging rises would appear to overlap.
 					var centerAbove = (f00 + f10 + f01 + f11) / 4 > L;
-
 					switch (idx) {
 						case 1, 14:  seg( left, top );
 						case 2, 13:  seg( top, right );
@@ -998,6 +1140,7 @@ class CityMap extends Sprite {
 						default:
 					}
 				}
+		}
 	}
 
 	// A giant cave: everything beyond the cave wall is rock-dark, with a
