@@ -753,68 +753,102 @@ class CityMap extends Sprite {
 		return true;
 	}
 
+	// A random free point in the countryside band around the city, or null.
+	private function freeSpot( model:Model, cr:Float, c:Point, rMin:Float, rMax:Float ):Point {
+		for (attempt in 0...40) {
+			var ang = Random.float() * Math.PI * 2;
+			var rad = cr * (rMin + Random.float() * (rMax - rMin));
+			var p = new Point( c.x + Math.cos( ang ) * rad, c.y + Math.sin( ang ) * rad );
+			if (terrainSpotFree( p, model ))
+				return p;
+		}
+		return null;
+	}
+
 	// Scattered forest / mountains / swamp in a ring around the city.
 	private function drawTerrainScatter( g:Graphics, model:Model ):Void {
 		var cr = model.cityRadius;
 		var c = model.center;
 
-		var tries = terrain == 1 ? 700 : (terrain == 2 ? 280 : 450);
-		var spots:Array<Point> = [];
-		for (k in 0...tries) {
-			var ang = Random.float() * Math.PI * 2;
-			var rad = cr * (0.55 + Random.float() * 1.5);
-			var p = new Point( c.x + Math.cos( ang ) * rad, c.y + Math.sin( ang ) * rad );
-			if (terrainSpotFree( p, model ))
-				spots.push( p );
-		}
-
 		switch (terrain) {
-			case 1: // forest: clustered canopy blobs
-				var canopy = mix( advanced_palette.grass, 0x1E3320, 0.3 );
-				var lineC = mix( canopy, palette.dark, 0.5 );
-				for (p in spots) {
-					var blobs = 1 + Random.int( 0, 3 );
-					for (b in 0...blobs) {
-						var r = 1.6 + Random.float() * 2.2;
-						var ox = (Random.float() - 0.5) * r * 2.2;
-						var oy = (Random.float() - 0.5) * r * 2.2;
-						g.lineStyle( Brush.THIN_STROKE, lineC, 0.8 );
-						g.beginFill( canopy, 0.9 );
-						g.drawCircle( p.x + ox, p.y + oy, r );
+			case 1: // forest: fused organic groves, map-style
+				var canopy = mix( advanced_palette.grass, 0x1E3320, 0.28 );
+				var lineC = mix( canopy, palette.dark, 0.55 );
+				var deep = mix( canopy, 0x14251A, 0.4 );
+
+				// Groves: each is a clump of overlapping canopy blobs drawn
+				// in two passes — every blob slightly enlarged in the outline
+				// colour first, then the canopy fill over it — so the circles
+				// fuse into one woodland mass with a single bumpy edge.
+				var groves = 16 + Random.int( 0, 8 );
+				for (gi in 0...groves) {
+					var gc = freeSpot( model, cr, c, 0.55, 1.8 );
+					if (gc == null) continue;
+
+					var R = cr * (0.09 + Random.float() * 0.15);
+					var blobs:Array<{x:Float, y:Float, r:Float}> = [];
+					var m = 10 + Random.int( 0, 14 );
+					for (bi in 0...m) {
+						var a = Random.float() * Math.PI * 2;
+						var d = Math.sqrt( Random.float() ) * R * 0.75;
+						var p = new Point( gc.x + Math.cos( a ) * d, gc.y + Math.sin( a ) * d * 0.8 );
+						if (!terrainSpotFree( p, model )) continue;
+						blobs.push( {x: p.x, y: p.y, r: R * (0.28 + Random.float() * 0.22)} );
+					}
+					if (blobs.length < 4) continue;
+
+					// One fill per circle: overlapping circles in a single fill
+					// cancel to rings under the even-odd rule, so each blob is
+					// its own fill and the opaque overdraw unions them solidly.
+					g.lineStyle( 0, 0, 0 );
+					for (b in blobs) {
+						g.beginFill( lineC );
+						g.drawCircle( b.x, b.y, b.r + 0.9 );
 						g.endFill();
 					}
+					for (b in blobs) {
+						g.beginFill( canopy );
+						g.drawCircle( b.x, b.y, b.r );
+						g.endFill();
+					}
+
+					// interior texture: darker canopy clumps
+					for (b in blobs)
+						if (Random.bool( 0.45 )) {
+							g.beginFill( deep, 0.35 );
+							g.drawCircle( b.x + (Random.float() - 0.5) * b.r * 0.6, b.y + (Random.float() - 0.5) * b.r * 0.6, b.r * 0.4 );
+							g.endFill();
+						}
 				}
 
-			case 2: // mountains: shaded peaks, drawn back-to-front
-				spots.sort( function( a, b ) return a.y < b.y ? -1 : 1 );
-				var body = mix( palette.medium, palette.paper, 0.45 );
-				var shade = mix( palette.medium, palette.dark, 0.3 );
-				for (p in spots) {
-					var h = 5 + Random.float() * 9;
-					var w = h * (0.9 + Random.float() * 0.5);
-					var peakX = p.x + (Random.float() - 0.5) * w * 0.3;
-
-					g.lineStyle( Brush.THIN_STROKE * 1.5, palette.dark, 0.75 );
-					g.beginFill( body );
-					g.moveTo( p.x - w / 2, p.y );
-					g.lineTo( peakX, p.y - h );
-					g.lineTo( p.x + w / 2, p.y );
-					g.lineTo( p.x - w / 2, p.y );
-					g.endFill();
-
-					// shaded flank
+				// ...and a few lone trees between the groves
+				for (k in 0...30) {
+					var p = freeSpot( model, cr, c, 0.55, 2.0 );
+					if (p == null) continue;
+					var r = 1.6 + Random.float() * 1.6;
 					g.lineStyle( 0, 0, 0 );
-					g.beginFill( shade, 0.85 );
-					g.moveTo( peakX, p.y - h );
-					g.lineTo( p.x + w / 2, p.y );
-					g.lineTo( peakX + w * 0.12, p.y );
-					g.lineTo( peakX, p.y - h );
+					g.beginFill( lineC );
+					g.drawCircle( p.x, p.y, r + 0.7 );
+					g.endFill();
+					g.beginFill( canopy );
+					g.drawCircle( p.x, p.y, r );
 					g.endFill();
 				}
+
+			case 2: // mountains: additive topographic contours (level-sets)
+				drawTopoMountains( g, model, cr, c );
 
 			case 3: // swamp: grass tufts over damp speckles
 				var tuft = mix( advanced_palette.grass, 0x33441F, 0.45 );
 				var damp = advanced_palette.water;
+				var spots:Array<Point> = [];
+				for (k in 0...450) {
+					var ang = Random.float() * Math.PI * 2;
+					var rad = cr * (0.55 + Random.float() * 1.5);
+					var p = new Point( c.x + Math.cos( ang ) * rad, c.y + Math.sin( ang ) * rad );
+					if (terrainSpotFree( p, model ))
+						spots.push( p );
+				}
 				for (p in spots) {
 					if (Random.bool( 0.5 )) {
 						g.lineStyle( 0, 0, 0 );
@@ -833,6 +867,137 @@ class CityMap extends Sprite {
 					}
 				}
 		}
+	}
+
+	// Mountains as a real elevation model: a handful of elongated bumps
+	// (substantial massifs plus smaller outcroppings) summed into one
+	// heightfield, whose contour lines are traced as level-sets with
+	// marching squares. Because every ring is a level of the same summed
+	// field, overlapping rises merge additively into one contour system —
+	// nested rings can never cross, exactly like a survey map.
+	private function drawTopoMountains( g:Graphics, model:Model, cr:Float, c:Point ):Void {
+		var lineC = mix( palette.dark, palette.medium, 0.25 );
+
+		// --- the bumps ---
+		var bumps:Array<{x:Float, y:Float, a:Float, b:Float, ct:Float, st:Float, h:Float, ph:Float}> = [];
+		function addBump( band0:Float, band1:Float, r0:Float, r1:Float, h0:Float ):Void {
+			var mc = freeSpot( model, cr, c, band0, band1 );
+			if (mc == null) return;
+			var theta = Random.float() * Math.PI;
+			var a = cr * (r0 + Random.float() * (r1 - r0));
+			bumps.push( {
+				x: mc.x, y: mc.y,
+				a: a, b: a * (0.5 + Random.float() * 0.35),
+				ct: Math.cos( theta ), st: Math.sin( theta ),
+				h: h0 * (0.8 + Random.float() * 0.4),
+				ph: Random.float() * Math.PI * 2
+			} );
+		}
+
+		var big = 5 + Random.int( 0, 2 );
+		for (i in 0...big) addBump( 0.95, 1.75, 0.3, 0.55, 1.0 );
+		var small = 5 + Random.int( 0, 3 );
+		for (i in 0...small) addBump( 0.7, 1.9, 0.1, 0.18, 0.55 );
+		if (bumps.length == 0) return;
+
+		// summed elevation, with a gentle angular wobble per bump so the
+		// contours read as landform rather than perfect ellipses
+		function field( px:Float, py:Float ):Float {
+			var f = 0.0;
+			for (bp in bumps) {
+				var dx = px - bp.x, dy = py - bp.y;
+				var u = dx * bp.ct + dy * bp.st;
+				var v = -dx * bp.st + dy * bp.ct;
+				var ang = Math.atan2( v, u );
+				var wob = 1 + 0.13 * Math.sin( 3 * ang + bp.ph ) + 0.07 * Math.sin( 5 * ang - bp.ph );
+				var r2 = (u * u) / (bp.a * bp.a) + (v * v) / (bp.b * bp.b);
+				f += bp.h * Math.exp( -r2 * 2.2 / wob );
+			}
+			return f;
+		}
+
+		// --- the grid over the bumps' extent ---
+		var minX = Math.POSITIVE_INFINITY, minY = Math.POSITIVE_INFINITY;
+		var maxX = Math.NEGATIVE_INFINITY, maxY = Math.NEGATIVE_INFINITY;
+		for (bp in bumps) {
+			minX = Math.min( minX, bp.x - bp.a * 1.6 ); maxX = Math.max( maxX, bp.x + bp.a * 1.6 );
+			minY = Math.min( minY, bp.y - bp.a * 1.6 ); maxY = Math.max( maxY, bp.y + bp.a * 1.6 );
+		}
+
+		var cell = cr / 34;
+		var nx = Std.int( Math.ceil( (maxX - minX) / cell ) ) + 1;
+		var ny = Std.int( Math.ceil( (maxY - minY) / cell ) ) + 1;
+		if (nx < 2 || ny < 2 || nx * ny > 160000) return;
+
+		var F = new Array<Float>();
+		for (j in 0...ny)
+			for (i in 0...nx)
+				F.push( field( minX + i * cell, minY + j * cell ) );
+
+		// lazily-computed ground freedom per cell, so contours stop at the
+		// city, roads, farms and water instead of running over them
+		var free = new Array<Int>();
+		for (k in 0...nx * ny) free.push( -1 );
+		function cellFree( i:Int, j:Int ):Bool {
+			var k = j * nx + i;
+			if (free[k] == -1)
+				free[k] = terrainSpotFree( new Point( minX + (i + 0.5) * cell, minY + (j + 0.5) * cell ), model ) ? 1 : 0;
+			return free[k] == 1;
+		}
+
+		// --- marching squares, one pass per contour level ---
+		var levels = [0.16, 0.28, 0.4, 0.52, 0.64, 0.76, 0.88];
+		g.lineStyle( Brush.THIN_STROKE * 1.7, lineC, 0.9 );
+
+		for (L in levels)
+			for (j in 0...ny - 1)
+				for (i in 0...nx - 1) {
+					var f00 = F[j * nx + i],       f10 = F[j * nx + i + 1];
+					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
+
+					// skip cells fully above/below this level
+					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
+					if (idx == 0 || idx == 15) continue;
+					if (!cellFree( i, j )) continue;
+
+					var x0 = minX + i * cell, y0 = minY + j * cell;
+					var x1 = x0 + cell,       y1 = y0 + cell;
+
+					// interpolated crossings on each cell edge
+					inline function lerpT( fa:Float, fb:Float ):Float
+						return (L - fa) / (fb - fa);
+					var top    = new Point( x0 + lerpT( f00, f10 ) * cell, y0 );
+					var bottom = new Point( x0 + lerpT( f01, f11 ) * cell, y1 );
+					var left   = new Point( x0, y0 + lerpT( f00, f01 ) * cell );
+					var right  = new Point( x1, y0 + lerpT( f10, f11 ) * cell );
+
+					inline function seg( a:Point, b:Point ):Void {
+						g.moveTo( a.x, a.y );
+						g.lineTo( b.x, b.y );
+					}
+
+					// The two saddle cases (5 and 10) are ambiguous: which pair
+					// of corners the ridge connects depends on the elevation at
+					// the cell centre. Picking wrong draws crossing segments, so
+					// contours from two merging rises would appear to overlap.
+					var centerAbove = (f00 + f10 + f01 + f11) / 4 > L;
+
+					switch (idx) {
+						case 1, 14:  seg( left, top );
+						case 2, 13:  seg( top, right );
+						case 3, 12:  seg( left, right );
+						case 4, 11:  seg( right, bottom );
+						case 5:
+							if (centerAbove) { seg( top, right ); seg( left, bottom ); }
+							else             { seg( left, top ); seg( right, bottom ); }
+						case 6, 9:   seg( top, bottom );
+						case 7, 8:   seg( left, bottom );
+						case 10:
+							if (centerAbove) { seg( left, top ); seg( right, bottom ); }
+							else             { seg( top, right ); seg( left, bottom ); }
+						default:
+					}
+				}
 	}
 
 	// A giant cave: everything beyond the cave wall is rock-dark, with a
