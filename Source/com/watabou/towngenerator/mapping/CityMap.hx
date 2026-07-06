@@ -79,6 +79,16 @@ class CityMap extends Sprite {
 			patches.push( patchView );
 		}
 
+		// Surrounding terrain (forest / mountains / swamp) is the lowest
+		// layer of all: farms, roads, water and buildings all draw over it,
+		// so hillside blocks sit on the elevation colours and rivers and
+		// seas cut smoothly through relief and groves.
+		if (terrain >= 1 && terrain <= 3) {
+			var terrainView = new Shape();
+			drawTerrainScatter( terrainView.graphics, model );
+			addChild( terrainView );
+		}
+
 		// Under the water: farmland and parks — open ground the water is
 		// allowed to cut off. Then the water itself.
 		if (hasWater) {
@@ -99,14 +109,6 @@ class CityMap extends Sprite {
 				drawDocks( dockView.graphics, model );
 				addChild( dockView );
 			}
-		}
-
-		// Surrounding terrain scatter (forest / mountains / swamp) sits on
-		// the countryside, under the roads that thread through it.
-		if (terrain >= 1 && terrain <= 3) {
-			var terrainView = new Shape();
-			drawTerrainScatter( terrainView.graphics, model );
-			addChild( terrainView );
 		}
 
 		for (road in model.roads) {
@@ -777,6 +779,18 @@ class CityMap extends Sprite {
 		return true;
 	}
 
+	// Like terrainSpotFree, but requires a whole disc of radius r to be
+	// clear, so a tree canopy can't poke under a neighbouring building.
+	private function terrainClear( p:Point, r:Float, model:Model ):Bool {
+		if (!terrainSpotFree( p, model )) return false;
+		for (q in 0...4) {
+			var a = q * Math.PI / 2;
+			if (!terrainSpotFree( new Point( p.x + Math.cos( a ) * r, p.y + Math.sin( a ) * r ), model ))
+				return false;
+		}
+		return true;
+	}
+
 	// A random free point in the countryside band around the city, or null.
 	private function freeSpot( model:Model, cr:Float, c:Point, rMin:Float, rMax:Float ):Point {
 		for (attempt in 0...40) {
@@ -816,8 +830,9 @@ class CityMap extends Sprite {
 						var a = Random.float() * Math.PI * 2;
 						var d = Math.sqrt( Random.float() ) * R * 0.75;
 						var p = new Point( gc.x + Math.cos( a ) * d, gc.y + Math.sin( a ) * d * 0.8 );
-						if (!terrainSpotFree( p, model )) continue;
-						blobs.push( {x: p.x, y: p.y, r: R * (0.28 + Random.float() * 0.22)} );
+						var rr = R * (0.28 + Random.float() * 0.22);
+						if (!terrainClear( p, rr * 0.9, model )) continue;
+						blobs.push( {x: p.x, y: p.y, r: rr} );
 					}
 					if (blobs.length < 4) continue;
 
@@ -850,6 +865,7 @@ class CityMap extends Sprite {
 					var p = freeSpot( model, cr, c, 0.55, 2.0 );
 					if (p == null) continue;
 					var r = 1.6 + Random.float() * 1.6;
+					if (!terrainClear( p, r + 0.7, model )) continue;
 					g.lineStyle( 0, 0, 0 );
 					g.beginFill( lineC );
 					g.drawCircle( p.x, p.y, r + 0.7 );
@@ -968,39 +984,38 @@ class CityMap extends Sprite {
 			for (i in 0...nx)
 				F.push( field( minX + i * cell, minY + j * cell ) );
 
-		// For the relief fills only water and actual buildings block a
-		// cell: farms and roads draw over the terrain layer anyway, and
-		// blocking them would gnaw jagged staircases into the bands.
-		var mShapes:Array<Polygon> = [];
+		// For the relief fills only the city proper (the wall/border
+		// circumference, plus the citadel) masks cells. Buildings, farms
+		// and roads all draw over the terrain layer — hillside blocks sit
+		// ON the elevation colours — and the water is drawn above the
+		// relief, so shorelines stay smooth and mountains simply run down
+		// into the sea or part for a river.
+		var mask:Array<Polygon> = [ model.border.shape ];
+		if (model.citadel != null) mask.push( model.citadel.shape );
 		var mBB:Array<Float> = [];
-		for (patch in model.patches)
-			if (patch.ward != null && patch.ward.geometry != null && patch.ward.geometry.length > 0 &&
-			    Type.getClass( patch.ward ) != Farm) {
-				mShapes.push( patch.shape );
-				var bx0 = Math.POSITIVE_INFINITY, by0 = Math.POSITIVE_INFINITY;
-				var bx1 = Math.NEGATIVE_INFINITY, by1 = Math.NEGATIVE_INFINITY;
-				for (v in patch.shape) {
-					if (v.x < bx0) bx0 = v.x; if (v.x > bx1) bx1 = v.x;
-					if (v.y < by0) by0 = v.y; if (v.y > by1) by1 = v.y;
-				}
-				mBB.push( bx0 ); mBB.push( by0 ); mBB.push( bx1 ); mBB.push( by1 );
+		for (sh in mask) {
+			var bx0 = Math.POSITIVE_INFINITY, by0 = Math.POSITIVE_INFINITY;
+			var bx1 = Math.NEGATIVE_INFINITY, by1 = Math.NEGATIVE_INFINITY;
+			for (v in sh) {
+				if (v.x < bx0) bx0 = v.x; if (v.x > bx1) bx1 = v.x;
+				if (v.y < by0) by0 = v.y; if (v.y > by1) by1 = v.y;
 			}
+			mBB.push( bx0 ); mBB.push( by0 ); mBB.push( bx1 ); mBB.push( by1 );
+		}
 
-		var hasWater = model.seaShape != null || model.riverShape != null;
 		var free = new Array<Int>();
 		for (k in 0...nx * ny) free.push( -1 );
 		function cellFree( i:Int, j:Int ):Bool {
 			var k = j * nx + i;
 			if (free[k] == -1) {
 				var pt = new Point( minX + (i + 0.5) * cell, minY + (j + 0.5) * cell );
-				var ok = !(hasWater && model.isWater( pt ));
-				if (ok)
-					for (si in 0...mShapes.length) {
-						var b = si * 4;
-						if (pt.x < mBB[b] || pt.y < mBB[b + 1] || pt.x > mBB[b + 2] || pt.y > mBB[b + 3])
-							continue;
-						if (pointInPoly( pt, mShapes[si] )) { ok = false; break; }
-					}
+				var ok = true;
+				for (si in 0...mask.length) {
+					var b = si * 4;
+					if (pt.x < mBB[b] || pt.y < mBB[b + 1] || pt.x > mBB[b + 2] || pt.y > mBB[b + 3])
+						continue;
+					if (pointInPoly( pt, mask[si] )) { ok = false; break; }
+				}
 				free[k] = ok ? 1 : 0;
 			}
 			return free[k] == 1;

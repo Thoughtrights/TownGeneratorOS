@@ -850,6 +850,7 @@ class Model {
 
 			gates = gates.concat( castle.wall.gates.filter( function( g:Point ) return !isWater( g ) ) );
 		}
+
 	}
 
 	public static function findCircumference( wards:Array<Patch> ):Polygon {
@@ -875,14 +876,38 @@ class Model {
 				}
 			} );
 
-		var result = new Polygon();
-		var index = 0;
-		do {
-			result.push( A[index] );
-			index = A.indexOf( B[index] );
-		} while (index != 0);
+		// Walk the boundary edge-by-edge, consuming each edge once. The
+		// naive `A.indexOf( B[index] )` walk breaks when a vertex is shared
+		// by more than two boundary edges (common in large cities): indexOf
+		// jumps to the wrong occurrence and the walk closes a tiny loop —
+		// a 3-vertex "wall". Instead, trace every closed loop and keep the
+		// largest: that's the true circumference; the small ones are
+		// pinch-off artifacts.
+		var used = [for (a in A) false];
+		var best:Array<Point> = null;
 
-		return result;
+		for (start in 0...A.length) {
+			if (used[start]) continue;
+			var loop:Array<Point> = [];
+			var index = start;
+			var closed = false;
+			while (true) {
+				used[index] = true;
+				loop.push( A[index] );
+
+				if (B[index] == A[start]) { closed = true; break; }
+
+				var next = -1;
+				for (j in 0...A.length)
+					if (!used[j] && A[j] == B[index]) { next = j; break; }
+				if (next == -1) break;
+				index = next;
+			}
+			if (closed && (best == null || loop.length > best.length))
+				best = loop;
+		}
+
+		return new Polygon( best != null ? best : [] );
 	}
 
 	public function patchByVertex( v:Point ):Array<Patch> {
