@@ -1157,88 +1157,65 @@ class CityMap extends Sprite {
 	}
 
 	// A giant cave: everything beyond the cave wall is rock-dark, with a
-	// jagged rim closing around the city.
+	// jagged rim closing around the city. All the rock — wall, stalactite
+	// teeth, inward outcroppings and free-standing pillars — is drawn in
+	// two opaque passes (enlarged lip-colour shapes first, rock fills on
+	// top), so overlapping pieces fuse into one mass with a single
+	// continuous lip instead of reading as separate stamped objects.
 	private function drawCavern( g:Graphics, model:Model ):Void {
 		var cr = model.cityRadius;
 		var c = model.center;
+		var rock = mix( palette.dark, 0x000000, 0.45 );
+		var lipW = Brush.THICK_STROKE * 1.2;
 
-		// Jagged cave-wall rim (counter-clockwise, so it punches a hole in
-		// the clockwise dark surround under the nonzero fill rule). Low
-		// harmonics give the cavern big irregular lobes, higher ones and
-		// per-vertex noise roughen the rock.
+		// --- geometry first, so both passes draw the exact same shapes ---
+
+		// Jagged cave-wall rim: low harmonics for big irregular lobes,
+		// higher ones and per-vertex noise for rough rock.
 		var n = 72;
-		var rim:Array<Point> = [];
 		var radii:Array<Float> = [];
 		var ph1 = Random.float() * Math.PI * 2;
 		var ph2 = Random.float() * Math.PI * 2;
 		var ph3 = Random.float() * Math.PI * 2;
 		for (i in 0...n) {
 			var a = i / n * Math.PI * 2;
-			var base = cr * 1.32;
 			var wob = 1
 				+ 0.13 * Math.sin( 2 * a + ph1 )
 				+ 0.16 * Math.sin( 3 * a + ph2 )
 				+ 0.07 * Math.sin( 6 * a + ph3 )
 				+ (Random.float() - 0.5) * 0.34;
-			radii.push( base * wob );
+			radii.push( cr * 1.32 * wob );
 		}
-		// smooth the noise a touch so the rim reads as rock, not static
 		for (pass in 0...2)
 			radii = [for (i in 0...n) (radii[(i + n - 1) % n] + radii[i] * 2 + radii[(i + 1) % n]) / 4];
-		for (i in 0...n) {
-			var a = -(i / n) * Math.PI * 2;	// negative: reverse winding
-			rim.push( new Point( c.x + Math.cos( a ) * radii[i], c.y + Math.sin( a ) * radii[i] ) );
-		}
 
-		var rock = mix( palette.dark, 0x000000, 0.45 );
-		var far = cr * 6;
+		function ringAt( shrink:Float ):Array<Point>
+			return [for (i in 0...n) {
+				var a = -(i / n) * Math.PI * 2;	// negative: reverse winding
+				new Point( c.x + Math.cos( a ) * (radii[i] - shrink), c.y + Math.sin( a ) * (radii[i] - shrink) );
+			}];
 
-		g.lineStyle( 0, 0, 0 );
-		g.beginFill( rock );
-		// outer square, clockwise
-		g.moveTo( c.x - far, c.y - far );
-		g.lineTo( c.x + far, c.y - far );
-		g.lineTo( c.x + far, c.y + far );
-		g.lineTo( c.x - far, c.y + far );
-		g.lineTo( c.x - far, c.y - far );
-		// inner rim, reverse winding: the cave opening
-		g.moveTo( rim[0].x, rim[0].y );
-		for (i in 1...n)
-			g.lineTo( rim[i].x, rim[i].y );
-		g.lineTo( rim[0].x, rim[0].y );
-		g.endFill();
+		var rim = ringAt( 0 );
+		var rimIn = ringAt( lipW );	// the lip band between rim and rimIn
 
-		// the rock lip
-		g.lineStyle( Brush.THICK_STROKE * 1.2, palette.dark, 1 );
-		g.moveTo( rim[0].x, rim[0].y );
-		for (i in 1...n)
-			g.lineTo( rim[i].x, rim[i].y );
-		g.lineTo( rim[0].x, rim[0].y );
-
-		// stalactite teeth along the rim, pointing into the cave
-		g.lineStyle( 0, 0, 0 );
-		g.beginFill( rock );
-		var i = 0;
-		while (i < n) {
-			var p0 = rim[i];
-			var p1 = rim[(i + 1) % n];
+		// Stalactite teeth along the rim
+		var teeth:Array<{p0:Point, p1:Point, tx:Float, ty:Float, ex:Float, ey:Float}> = [];
+		var ti = 0;
+		while (ti < n) {
+			var p0 = rim[ti];
+			var p1 = rim[(ti + 1) % n];
 			var mx = (p0.x + p1.x) / 2, my = (p0.y + p1.y) / 2;
 			var inx = c.x - mx, iny = c.y - my;
 			var il = Math.sqrt( inx * inx + iny * iny );
 			var tl = cr * (0.03 + Random.float() * 0.05);
-			g.moveTo( p0.x, p0.y );
-			g.lineTo( mx + inx / il * tl, my + iny / il * tl );
-			g.lineTo( p1.x, p1.y );
-			g.lineTo( p0.x, p0.y );
-			i += 1 + Random.int( 0, 2 );
+			teeth.push( {p0: p0, p1: p1, tx: mx + inx / il * tl, ty: my + iny / il * tl, ex: inx / il, ey: iny / il} );
+			ti += 1 + Random.int( 0, 2 );
 		}
-		g.endFill();
 
-		// Rocky outcroppings bulging inward off the cave wall: blobby rock
-		// masses centred just inside the rim, skipped where they'd swallow
-		// buildings or water.
-		var outcrops = 5 + Random.int( 0, 4 );
-		for (k in 0...outcrops) {
+		// Rocky outcroppings bulging inward off the wall
+		var outcrops:Array<{oc:Point, orad:Array<Float>}> = [];
+		var m = 12;
+		for (k in 0...5 + Random.int( 0, 4 )) {
 			var vi = Random.int( 0, n );
 			var rp = rim[vi];
 			var rl = cr * (0.07 + Random.float() * 0.12);
@@ -1246,33 +1223,81 @@ class CityMap extends Sprite {
 			var dl = Math.sqrt( dirx * dirx + diry * diry );
 			var oc = new Point( rp.x + dirx / dl * rl * 0.7, rp.y + diry / dl * rl * 0.7 );
 			if (!terrainSpotFree( oc, model )) continue;
-
-			var m = 12;
 			var orad = [for (q in 0...m) rl * (0.75 + Random.float() * 0.5)];
 			for (pass in 0...2)
 				orad = [for (q in 0...m) (orad[(q + m - 1) % m] + orad[q] * 2 + orad[(q + 1) % m]) / 4];
-
-			g.lineStyle( Brush.THICK_STROKE * 0.9, palette.dark, 1 );
-			g.beginFill( rock );
-			for (q in 0...m + 1) {
-				var qa = (q % m) / m * Math.PI * 2;
-				var qx = oc.x + Math.cos( qa ) * orad[q % m];
-				var qy = oc.y + Math.sin( qa ) * orad[q % m];
-				if (q == 0) g.moveTo( qx, qy ) else g.lineTo( qx, qy );
-			}
-			g.endFill();
+			outcrops.push( {oc: oc, orad: orad} );
 		}
 
-		// ...and a few free-standing rock pillars out on the cavern floor
-		var pillars = 4 + Random.int( 0, 4 );
-		for (k in 0...pillars) {
-			var pp = freeSpot( model, cr, c, 1.0, 1.2 );
+		// Free-standing pillars, spawned as little clusters of overlapping
+		// columns — and some near enough the wall to merge with it.
+		var pillars:Array<{p:Point, r:Float}> = [];
+		for (k in 0...5 + Random.int( 0, 4 )) {
+			var pp = freeSpot( model, cr, c, 1.0, 1.32 );
 			if (pp == null) continue;
-			var pr = 1.5 + Random.float() * 3.5;
-			g.lineStyle( Brush.THIN_STROKE * 1.5, palette.dark, 1 );
-			g.beginFill( rock );
-			g.drawCircle( pp.x, pp.y, pr );
+			var r0 = 1.5 + Random.float() * 3.5;
+			pillars.push( {p: pp, r: r0} );
+			for (extra in 0...Random.int( 0, 3 )) {
+				var ea = Random.float() * Math.PI * 2;
+				var er = r0 * (0.5 + Random.float() * 0.5);
+				var ep = new Point( pp.x + Math.cos( ea ) * r0 * 1.1, pp.y + Math.sin( ea ) * r0 * 1.1 );
+				if (terrainSpotFree( ep, model ))
+					pillars.push( {p: ep, r: er} );
+			}
+		}
+
+		// --- two passes: lip colour enlarged, then rock fills over ---
+
+		inline function blob( oc:Point, orad:Array<Float>, grow:Float ):Void {
+			for (q in 0...m + 1) {
+				var qa = (q % m) / m * Math.PI * 2;
+				var qx = oc.x + Math.cos( qa ) * (orad[q % m] + grow);
+				var qy = oc.y + Math.sin( qa ) * (orad[q % m] + grow);
+				if (q == 0) g.moveTo( qx, qy ) else g.lineTo( qx, qy );
+			}
+		}
+
+		var far = cr * 6;
+		g.lineStyle( 0, 0, 0 );
+
+		for (pass in 0...2) {
+			var grow = pass == 0 ? lipW : 0.0;
+			var hole = pass == 0 ? rimIn : rim;
+			g.beginFill( pass == 0 ? palette.dark : rock );
+
+			// the dark surround with the cave opening punched out
+			g.moveTo( c.x - far, c.y - far );
+			g.lineTo( c.x + far, c.y - far );
+			g.lineTo( c.x + far, c.y + far );
+			g.lineTo( c.x - far, c.y + far );
+			g.lineTo( c.x - far, c.y - far );
+			g.moveTo( hole[0].x, hole[0].y );
+			for (i in 1...n)
+				g.lineTo( hole[i].x, hole[i].y );
+			g.lineTo( hole[0].x, hole[0].y );
 			g.endFill();
+
+			// teeth (tips reach a lip further in pass 0)
+			g.beginFill( pass == 0 ? palette.dark : rock );
+			for (t in teeth) {
+				g.moveTo( t.p0.x, t.p0.y );
+				g.lineTo( t.tx + t.ex * grow, t.ty + t.ey * grow );
+				g.lineTo( t.p1.x, t.p1.y );
+				g.lineTo( t.p0.x, t.p0.y );
+			}
+			g.endFill();
+
+			// outcrops and pillars, one fill each so overlaps union solidly
+			for (o in outcrops) {
+				g.beginFill( pass == 0 ? palette.dark : rock );
+				blob( o.oc, o.orad, grow );
+				g.endFill();
+			}
+			for (pl in pillars) {
+				g.beginFill( pass == 0 ? palette.dark : rock );
+				g.drawCircle( pl.p.x, pl.p.y, pl.r + grow );
+				g.endFill();
+			}
 		}
 	}
 }
