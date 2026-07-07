@@ -68,7 +68,7 @@ class CityMap extends Sprite {
 		brush_advanced = new BrushAdvanced( advanced_palette );
 
 		var model = Model.instance;
-		var hasWater = model.seaShape != null || model.riverShape != null;
+		var hasWater = model.seaShape != null || model.riverShape != null || model.moatOuter != null;
 
 		patches = [];
 
@@ -162,7 +162,7 @@ class CityMap extends Sprite {
 	// dropped (a house straddling the bank) rather than drawn on top of it.
 	private function buildingInWater( building:Polygon ):Bool {
 		var m = Model.instance;
-		if (m.seaShape == null && m.riverShape == null)
+		if (m.seaShape == null && m.riverShape == null && m.moatOuter == null)
 			return false;
 		for (v in building)
 			if (m.isWater( v ))
@@ -217,7 +217,7 @@ class CityMap extends Sprite {
 		// house that straddles the bank (open ground — farms, parks — is left
 		// whole, since the water simply draws over it).
 		var geo = patch.ward.geometry;
-		if (geo != null && cls != Farm && cls != Park && (Model.instance.seaShape != null || Model.instance.riverShape != null))
+		if (geo != null && cls != Farm && cls != Park && (Model.instance.seaShape != null || Model.instance.riverShape != null || Model.instance.moatOuter != null))
 			geo = [for (b in geo) if (!buildingInWater( b )) b];
 
 		// Sloppiness varies by district (only matters when sketchy > 0)
@@ -353,6 +353,10 @@ class CityMap extends Sprite {
 			g.drawPolygon( model.seaShape );
 		if (model.riverShape != null)
 			g.drawPolygon( model.riverShape );
+		if (model.moatOuter != null) {
+			g.drawPolygon( model.moatOuter );
+			g.drawPolygon( model.moatInner );
+		}
 
 		// ...then the fills on top of them. Each fill covers the water-facing
 		// stretches of the outlines, leaving only the land-facing shoreline
@@ -370,6 +374,22 @@ class CityMap extends Sprite {
 			g.drawPolygon( model.riverShape );
 			g.endFill();
 		}
+		if (model.moatOuter != null) {
+			// ring fill: outer contour plus the inner one in reverse
+			// winding, so the city inside stays dry
+			g.beginFill( advanced_palette.water );
+			var o = model.moatOuter;
+			g.moveTo( o[0].x, o[0].y );
+			for (i in 1...o.length)
+				g.lineTo( o[i].x, o[i].y );
+			g.lineTo( o[0].x, o[0].y );
+			var q = model.moatInner;
+			g.moveTo( q[q.length - 1].x, q[q.length - 1].y );
+			var i = q.length - 2;
+			while (i >= 0) { g.lineTo( q[i].x, q[i].y ); i--; }
+			g.lineTo( q[q.length - 1].x, q[q.length - 1].y );
+			g.endFill();
+		}
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {
@@ -377,15 +397,25 @@ class CityMap extends Sprite {
 		// open water. Valid (near-perpendicular) river crossings are carried by
 		// a bridge deck; oblique ones just stop at the bank.
 		var m = Model.instance;
-		var clip = m.seaShape != null || m.riverShape != null;
+		var clip = m.seaShape != null || m.riverShape != null || m.moatOuter != null;
 
 		function strokePolyline():Void {
 			var pen = false;
 			for (i in 0...road.length - 1) {
-				var mid = new Point( (road[i].x + road[i + 1].x) / 2, (road[i].y + road[i + 1].y) / 2 );
-				if (clip && m.isWater( mid )) { pen = false; continue; }
-				if (!pen) { g.moveToPoint( road[i] ); pen = true; }
-				g.lineToPoint( road[i + 1] );
+				// subdivide long stretches so even a narrow water band
+				// (a moat) interrupts the road rather than being stridden
+				var p0 = road[i];
+				var p1 = road[i + 1];
+				var len = Point.distance( p0, p1 );
+				var pieces = clip ? Std.int( Math.max( 1, Math.ceil( len / 4 ) ) ) : 1;
+				for (k in 0...pieces) {
+					var a = new Point( p0.x + (p1.x - p0.x) * k / pieces, p0.y + (p1.y - p0.y) * k / pieces );
+					var b = new Point( p0.x + (p1.x - p0.x) * (k + 1) / pieces, p0.y + (p1.y - p0.y) * (k + 1) / pieces );
+					var mid = new Point( (a.x + b.x) / 2, (a.y + b.y) / 2 );
+					if (clip && m.isWater( mid )) { pen = false; continue; }
+					if (!pen) { g.moveToPoint( a ); pen = true; }
+					g.lineToPoint( b );
+				}
 			}
 		}
 
@@ -415,7 +445,7 @@ class CityMap extends Sprite {
 		g.lineStyle( Brush.THICK_STROKE, palette.dark );
 
 		var m = Model.instance;
-		var hasWater = m.seaShape != null || m.riverShape != null;
+		var hasWater = m.seaShape != null || m.riverShape != null || m.moatOuter != null;
 		var towerR = Brush.THICK_STROKE * (large ? 1.5 : 1);
 
 		// Ends of wall stubs clipped at the waterline, each of which gets a
@@ -736,7 +766,7 @@ class CityMap extends Sprite {
 	// A spot is free for terrain if it's on dry ground, outside every
 	// built-up patch, and not on a road.
 	private function terrainSpotFree( p:Point, model:Model ):Bool {
-		if ((model.seaShape != null || model.riverShape != null) && model.isWater( p ))
+		if ((model.seaShape != null || model.riverShape != null || model.moatOuter != null) && model.isWater( p ))
 			return false;
 
 		if (tShapes == null) {
