@@ -393,17 +393,27 @@ class CityMap extends Sprite {
 	}
 
 	private function drawRoad( g:Graphics, road:Street ):Void {
-		// Skip any stretch that runs out over water — roads never show crossing
-		// open water. Valid (near-perpendicular) river crossings are carried by
-		// a bridge deck; oblique ones just stop at the bank.
+		// Roads never show crossing open sea or river — valid crossings are
+		// carried by a bridge deck; oblique ones just stop at the bank. The
+		// MOAT is different: the road carries straight over it, and for that
+		// wet stretch its edging switches to the wall colour, so the
+		// crossing reads as a built causeway/drawbridge without a separate
+		// deck object.
 		var m = Model.instance;
 		var clip = m.seaShape != null || m.riverShape != null || m.moatOuter != null;
 
-		function strokePolyline():Void {
+		// 0 = dry land, 1 = over the moat (causeway), 2 = open water (skip)
+		inline function classify( mid:Point ):Int {
+			if (!clip || !m.isWater( mid )) return 0;
+			return (m.inMoat( mid ) && !m.inSea( mid ) && !m.inRiver( mid )) ? 1 : 2;
+		}
+
+		// Stroke only the pieces whose class is in `want` (bitmask 1=land 2=moat)
+		function strokePolyline( want:Int ):Void {
 			var pen = false;
 			for (i in 0...road.length - 1) {
 				// subdivide long stretches so even a narrow water band
-				// (a moat) interrupts the road rather than being stridden
+				// changes the road's treatment rather than being stridden
 				var p0 = road[i];
 				var p1 = road[i + 1];
 				var len = Point.distance( p0, p1 );
@@ -412,18 +422,26 @@ class CityMap extends Sprite {
 					var a = new Point( p0.x + (p1.x - p0.x) * k / pieces, p0.y + (p1.y - p0.y) * k / pieces );
 					var b = new Point( p0.x + (p1.x - p0.x) * (k + 1) / pieces, p0.y + (p1.y - p0.y) * (k + 1) / pieces );
 					var mid = new Point( (a.x + b.x) / 2, (a.y + b.y) / 2 );
-					if (clip && m.isWater( mid )) { pen = false; continue; }
+					var cls = classify( mid );
+					var wanted = cls == 0 ? (want & 1) != 0 : (cls == 1 ? (want & 2) != 0 : false);
+					if (!wanted) { pen = false; continue; }
 					if (!pen) { g.moveToPoint( a ); pen = true; }
 					g.lineToPoint( b );
 				}
 			}
 		}
 
+		// land edging in the road colour...
 		g.lineStyle( Ward.MAIN_STREET + Brush.NORMAL_STROKE, palette.medium, false, null, CapsStyle.NONE );
-		strokePolyline();
+		strokePolyline( 1 );
 
+		// ...moat-crossing edging in the wall colour (the causeway)...
+		g.lineStyle( Ward.MAIN_STREET + Brush.NORMAL_STROKE, palette.dark, false, null, CapsStyle.NONE );
+		strokePolyline( 2 );
+
+		// ...and one continuous paper core across both
 		g.lineStyle( Ward.MAIN_STREET - Brush.NORMAL_STROKE, palette.paper );
-		strokePolyline();
+		strokePolyline( 3 );
 	}
 
 	// March from a land point toward a water point and return the last spot

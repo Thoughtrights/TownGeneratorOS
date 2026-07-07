@@ -441,31 +441,6 @@ class Model {
 		moatOuter = ringAt( gap + width );
 	}
 
-	// A drawbridge deck across the moat at a gate, following the outward
-	// direction from the city centre.
-	private function addDrawbridges():Void {
-		if (moatOuter == null) return;
-		for (gate in border.gates) {
-			if (isWater( gate )) continue;		// water-gates need no drawbridge
-			var dx = gate.x - center.x, dy = gate.y - center.y;
-			var l = Math.sqrt( dx * dx + dy * dy );
-			if (l < 0.001) continue;
-			dx /= l; dy /= l;
-
-			// march outward: over the berm, across the water, to the far bank
-			var d = 0.0;
-			while (d < cityR && !inMoat( new Point( gate.x + dx * d, gate.y + dy * d ) )) d += 0.8;
-			if (d >= cityR) continue;
-			var start = d;
-			while (d < cityR && inMoat( new Point( gate.x + dx * d, gate.y + dy * d ) )) d += 0.8;
-			var margin = 2.5;
-			bridges.push( [
-				new Point( gate.x + dx * (start - margin), gate.y + dy * (start - margin) ),
-				new Point( gate.x + dx * (d + margin), gate.y + dy * (d + margin) )
-			] );
-		}
-	}
-
 	// Removes a patch from the model and records it as water.
 	private function floodPatch( p:Patch ):Void {
 		p.water = true;
@@ -1088,7 +1063,6 @@ class Model {
 			smoothStreet( a );
 
 		placeBridges();
-		addDrawbridges();
 	}
 
 	private function tidyUpRoads() {
