@@ -45,8 +45,8 @@ class CityMap extends Sprite {
 	// 4 a random mix of the above per tower.
 	public static var towerStyle:Int = 0;
 
-	// Surrounding terrain: 0 none, 1 forest, 2 mountains, 3 swamp,
-	// 4 cavern (the city sits in a giant cave).
+	// Surrounding terrain: 0 none, 1 woods, 2 mountains, 3 swamp,
+	// 4 cavern (the city sits in a giant cave), 5 dense forest.
 	public static var terrain:Int = 0;
 
 	// index 0 keeps the current MOJEEB/DEFAULT look; 1-9 select one of
@@ -83,7 +83,7 @@ class CityMap extends Sprite {
 		// layer of all: farms, roads, water and buildings all draw over it,
 		// so hillside blocks sit on the elevation colours and rivers and
 		// seas cut smoothly through relief and groves.
-		if (terrain >= 1 && terrain <= 3) {
+		if ((terrain >= 1 && terrain <= 3) || terrain == 5) {
 			var terrainView = new Shape();
 			drawTerrainScatter( terrainView.graphics, model );
 			addChild( terrainView );
@@ -809,7 +809,7 @@ class CityMap extends Sprite {
 		var c = model.center;
 
 		switch (terrain) {
-			case 1: // forest: fused organic groves, map-style
+			case 1, 5: // woods (1) / dense forest (5): fused organic groves
 				var canopy = mix( advanced_palette.grass, 0x1E3320, 0.28 );
 				var lineC = mix( canopy, palette.dark, 0.55 );
 				var deep = mix( canopy, 0x14251A, 0.4 );
@@ -818,7 +818,8 @@ class CityMap extends Sprite {
 				// in two passes — every blob slightly enlarged in the outline
 				// colour first, then the canopy fill over it — so the circles
 				// fuse into one woodland mass with a single bumpy edge.
-				var groves = 16 + Random.int( 0, 8 );
+				var dense = terrain == 5;
+				var groves = dense ? 110 + Random.int( 0, 40 ) : 16 + Random.int( 0, 8 );
 				for (gi in 0...groves) {
 					var gc = freeSpot( model, cr, c, 0.55, 1.8 );
 					if (gc == null) continue;
@@ -861,7 +862,7 @@ class CityMap extends Sprite {
 				}
 
 				// ...and a few lone trees between the groves
-				for (k in 0...30) {
+				for (k in 0...(dense ? 150 : 30)) {
 					var p = freeSpot( model, cr, c, 0.55, 2.0 );
 					if (p == null) continue;
 					var r = 1.6 + Random.float() * 1.6;
@@ -923,18 +924,38 @@ class CityMap extends Sprite {
 
 		// --- the bumps, in three scale classes ---
 		var bumps:Array<{x:Float, y:Float, a:Float, b:Float, ct:Float, st:Float, h:Float, ph:Float}> = [];
+		// Clearance from the river, so a rise can never sit astride it: the
+		// river then reads as flowing through the valley between the ranges.
+		// Clearance scales with the bump, so foothills may still approach
+		// the banks while the great massifs keep well away.
+		function riverClear( mc:Point, a:Float ):Bool {
+			if (model.riverPath == null) return true;
+			var clearance = a * 1.1 + cr * 0.12;
+			var i = 0;
+			while (i < model.riverPath.length) {
+				if (Point.distance( mc, model.riverPath[i] ) < clearance)
+					return false;
+				i += 2;
+			}
+			return true;
+		}
+
 		function addBump( band0:Float, band1:Float, r0:Float, r1:Float, h0:Float ):Void {
-			var mc = freeSpot( model, cr, c, band0, band1 );
-			if (mc == null) return;
-			var theta = Random.float() * Math.PI;
-			var a = cr * (r0 + Random.float() * (r1 - r0));
-			bumps.push( {
-				x: mc.x, y: mc.y,
-				a: a, b: a * (0.5 + Random.float() * 0.35),
-				ct: Math.cos( theta ), st: Math.sin( theta ),
-				h: h0 * (0.8 + Random.float() * 0.4),
-				ph: Random.float() * Math.PI * 2
-			} );
+			for (attempt in 0...8) {
+				var mc = freeSpot( model, cr, c, band0, band1 );
+				if (mc == null) continue;
+				var a = cr * (r0 + Random.float() * (r1 - r0));
+				if (!riverClear( mc, a )) continue;
+				var theta = Random.float() * Math.PI;
+				bumps.push( {
+					x: mc.x, y: mc.y,
+					a: a, b: a * (0.5 + Random.float() * 0.35),
+					ct: Math.cos( theta ), st: Math.sin( theta ),
+					h: h0 * (0.8 + Random.float() * 0.4),
+					ph: Random.float() * Math.PI * 2
+				} );
+				return;
+			}
 		}
 
 		// great massifs: bigger than the city, mostly beyond the frame
@@ -1142,16 +1163,26 @@ class CityMap extends Sprite {
 		var c = model.center;
 
 		// Jagged cave-wall rim (counter-clockwise, so it punches a hole in
-		// the clockwise dark surround under the nonzero fill rule).
-		var n = 56;
+		// the clockwise dark surround under the nonzero fill rule). Low
+		// harmonics give the cavern big irregular lobes, higher ones and
+		// per-vertex noise roughen the rock.
+		var n = 72;
 		var rim:Array<Point> = [];
 		var radii:Array<Float> = [];
+		var ph1 = Random.float() * Math.PI * 2;
+		var ph2 = Random.float() * Math.PI * 2;
+		var ph3 = Random.float() * Math.PI * 2;
 		for (i in 0...n) {
+			var a = i / n * Math.PI * 2;
 			var base = cr * 1.32;
-			var wob = 1 + (Random.float() - 0.5) * 0.24 + Math.sin( i * 2.7 ) * 0.05;
+			var wob = 1
+				+ 0.13 * Math.sin( 2 * a + ph1 )
+				+ 0.16 * Math.sin( 3 * a + ph2 )
+				+ 0.07 * Math.sin( 6 * a + ph3 )
+				+ (Random.float() - 0.5) * 0.34;
 			radii.push( base * wob );
 		}
-		// smooth the radii a touch so the rim reads as rock, not noise
+		// smooth the noise a touch so the rim reads as rock, not static
 		for (pass in 0...2)
 			radii = [for (i in 0...n) (radii[(i + n - 1) % n] + radii[i] * 2 + radii[(i + 1) % n]) / 4];
 		for (i in 0...n) {
@@ -1202,5 +1233,46 @@ class CityMap extends Sprite {
 			i += 1 + Random.int( 0, 2 );
 		}
 		g.endFill();
+
+		// Rocky outcroppings bulging inward off the cave wall: blobby rock
+		// masses centred just inside the rim, skipped where they'd swallow
+		// buildings or water.
+		var outcrops = 5 + Random.int( 0, 4 );
+		for (k in 0...outcrops) {
+			var vi = Random.int( 0, n );
+			var rp = rim[vi];
+			var rl = cr * (0.07 + Random.float() * 0.12);
+			var dirx = c.x - rp.x, diry = c.y - rp.y;
+			var dl = Math.sqrt( dirx * dirx + diry * diry );
+			var oc = new Point( rp.x + dirx / dl * rl * 0.7, rp.y + diry / dl * rl * 0.7 );
+			if (!terrainSpotFree( oc, model )) continue;
+
+			var m = 12;
+			var orad = [for (q in 0...m) rl * (0.75 + Random.float() * 0.5)];
+			for (pass in 0...2)
+				orad = [for (q in 0...m) (orad[(q + m - 1) % m] + orad[q] * 2 + orad[(q + 1) % m]) / 4];
+
+			g.lineStyle( Brush.THICK_STROKE * 0.9, palette.dark, 1 );
+			g.beginFill( rock );
+			for (q in 0...m + 1) {
+				var qa = (q % m) / m * Math.PI * 2;
+				var qx = oc.x + Math.cos( qa ) * orad[q % m];
+				var qy = oc.y + Math.sin( qa ) * orad[q % m];
+				if (q == 0) g.moveTo( qx, qy ) else g.lineTo( qx, qy );
+			}
+			g.endFill();
+		}
+
+		// ...and a few free-standing rock pillars out on the cavern floor
+		var pillars = 4 + Random.int( 0, 4 );
+		for (k in 0...pillars) {
+			var pp = freeSpot( model, cr, c, 1.0, 1.2 );
+			if (pp == null) continue;
+			var pr = 1.5 + Random.float() * 3.5;
+			g.lineStyle( Brush.THIN_STROKE * 1.5, palette.dark, 1 );
+			g.beginFill( rock );
+			g.drawCircle( pp.x, pp.y, pr );
+			g.endFill();
+		}
 	}
 }

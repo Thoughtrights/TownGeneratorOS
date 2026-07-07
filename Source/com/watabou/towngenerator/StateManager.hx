@@ -162,10 +162,11 @@ class StateManager {
 			var coast1 = Std.parseInt( params.get( COAST ) );
 			if (coast1 != null) coast = (coast1 == 1);
 
-			// Surrounding terrain: 0 none (default), 1 forest, 2 mountains,
-			// 3 swamp, 4 cavern (the whole city sits in a giant cave).
+			// Surrounding terrain: 0 none (default), 1 woods, 2 mountains,
+			// 3 swamp, 4 cavern (the whole city sits in a giant cave),
+			// 5 dense forest.
 			var terrain1 = Std.parseInt( params.get( TERRAIN ) );
-			if (terrain1 != null) terrain = (terrain1 >= 0 && terrain1 <= 4) ? terrain1 : 0;
+			if (terrain1 != null) terrain = (terrain1 >= 0 && terrain1 <= 5) ? terrain1 : 0;
 
 			// Cap the page (canvas) to at most this many CSS pixels on its
 			// longer side. 0 (default) = fill the window as before.
