@@ -402,8 +402,8 @@ class Model {
 		var shapes:Array<Polygon> = [ border.shape ];
 		if (citadel != null) shapes.push( citadel.shape );
 
-		var n = 72;
-		var dists:Array<Float> = [];
+		var n = 96;
+		var raw:Array<Float> = [];
 		for (i in 0...n) {
 			var a = i / n * Math.PI * 2;
 			var dx = Math.cos( a ), dy = Math.sin( a );
@@ -414,12 +414,19 @@ class Model {
 					if (t != null && t.y >= 0 && t.y <= 1 && t.x > best)
 						best = t.x;
 				} );
-			dists.push( best );
+			raw.push( best );
 		}
 
-		// smooth so the banks flow instead of copying every wall kink
-		for (pass in 0...2)
+		// Smooth so the banks flow instead of copying every wall kink —
+		// but smoothing may only push the ring OUTWARD: clamping to the
+		// raw ray distance keeps the water clear of sharp salients like a
+		// rim-attached castle, whose bulge smoothing would otherwise cut
+		// straight across (leaving the castle wall standing in the moat).
+		var dists = raw.copy();
+		for (pass in 0...3) {
 			dists = [for (i in 0...n) (dists[(i + n - 1) % n] + dists[i] * 2 + dists[(i + 1) % n]) / 4];
+			dists = [for (i in 0...n) Math.max( dists[i], raw[i] )];
+		}
 
 		var gap = 4.0;		// dry berm so wall and towers never stand in water
 		var width = Ward.MAIN_STREET * (2.2 + Random.float() * 1.3);
