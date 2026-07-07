@@ -959,7 +959,16 @@ class CityMap extends Sprite {
 				var r2 = (u * u) / (bp.a * bp.a) + (v * v) / (bp.b * bp.b);
 				f += bp.h * Math.exp( -r2 * 2.2 / wob );
 			}
-			return f;
+
+			// The land flattens smoothly into the plain the city stands on:
+			// a radial smoothstep fades every rise to zero toward the centre,
+			// so contours curve gently around the settlement instead of being
+			// chopped off cell-by-cell at its edge.
+			var ddx = px - c.x, ddy = py - c.y;
+			var rr = Math.sqrt( ddx * ddx + ddy * ddy ) / cr;
+			var t = (rr - 0.8) / 0.4;
+			t = t < 0 ? 0 : (t > 1 ? 1 : t);
+			return f * t * t * (3 - 2 * t);
 		}
 
 		// --- the grid, clipped to a window around the view ---
@@ -990,37 +999,6 @@ class CityMap extends Sprite {
 		// ON the elevation colours — and the water is drawn above the
 		// relief, so shorelines stay smooth and mountains simply run down
 		// into the sea or part for a river.
-		var mask:Array<Polygon> = [ model.border.shape ];
-		if (model.citadel != null) mask.push( model.citadel.shape );
-		var mBB:Array<Float> = [];
-		for (sh in mask) {
-			var bx0 = Math.POSITIVE_INFINITY, by0 = Math.POSITIVE_INFINITY;
-			var bx1 = Math.NEGATIVE_INFINITY, by1 = Math.NEGATIVE_INFINITY;
-			for (v in sh) {
-				if (v.x < bx0) bx0 = v.x; if (v.x > bx1) bx1 = v.x;
-				if (v.y < by0) by0 = v.y; if (v.y > by1) by1 = v.y;
-			}
-			mBB.push( bx0 ); mBB.push( by0 ); mBB.push( bx1 ); mBB.push( by1 );
-		}
-
-		var free = new Array<Int>();
-		for (k in 0...nx * ny) free.push( -1 );
-		function cellFree( i:Int, j:Int ):Bool {
-			var k = j * nx + i;
-			if (free[k] == -1) {
-				var pt = new Point( minX + (i + 0.5) * cell, minY + (j + 0.5) * cell );
-				var ok = true;
-				for (si in 0...mask.length) {
-					var b = si * 4;
-					if (pt.x < mBB[b] || pt.y < mBB[b + 1] || pt.x > mBB[b + 2] || pt.y > mBB[b + 3])
-						continue;
-					if (pointInPoly( pt, mask[si] )) { ok = false; break; }
-				}
-				free[k] = ok ? 1 : 0;
-			}
-			return free[k] == 1;
-		}
-
 		// --- hypsometric tints, low to high, harmonized with the palette ---
 		var levels = [0.13, 0.25, 0.37, 0.49, 0.61, 0.73, 0.85, 0.94];
 		var ramp = [
@@ -1061,7 +1039,7 @@ class CityMap extends Sprite {
 					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
 					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
 
-					if (idx == 0 || !cellFree( i, j )) { flushRun( i ); continue; }
+					if (idx == 0) { flushRun( i ); continue; }
 					if (idx == 15) { if (runStart == -1) runStart = i; continue; }
 					flushRun( i );
 
@@ -1122,7 +1100,6 @@ class CityMap extends Sprite {
 					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
 					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
 					if (idx == 0 || idx == 15) continue;
-					if (!cellFree( i, j )) continue;
 
 					var x0 = minX + i * cell, y0 = minY + j * cell;
 					var x1 = x0 + cell,       y1 = y0 + cell;
