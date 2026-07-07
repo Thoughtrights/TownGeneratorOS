@@ -1,0 +1,40 @@
+BRIDGES (noted in blue in picture)
+
+These can be more simple. They can just be the background color (or
+cut to be transparent). They do not need to have a line around their
+four sides.
+
+They should never sit on top of a building. Buildings should be over
+them. If they do not have lines then this will finesse well.
+
+Bridges should align with roads and gates. If there is no road, there
+does not need to be a bridge.
+
+
+WALLS (noted in blue in picture)
+
+Walls stopped extending. This may be a connection issue with castles.
+
+
+RIVER MEETING OCEAN/BAY (noted in green in picture)
+
+When the river meets the ocean, the lines for the river should
+stop. The river and ocean should appear to be separate objects. They
+should visually merge. Just visually.
+
+
+LAND OVERLAPPING RIVERS AND OCEAN (noted in red in picture)
+
+The land objects are on top of the ocean and river. This makes the
+river or orcean appear to not have an edge. This applies to open land,
+farm land, and town houses and castles. The river and ocean can be on
+top of open land, and farm land. It can cut those off. The ocean and
+rivers cannot however be on top of town or castles and the town and
+castles cannot be on top of rivers or ocean. This is a conflict to
+avoid.
+
+
+PIERS/DOCKS (noted in black in picture)
+
+The piers are haphazard right now. Let's remove them until we have the
+other issues addressed.

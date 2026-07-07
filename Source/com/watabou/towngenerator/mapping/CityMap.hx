@@ -4,9 +4,12 @@ import com.watabou.utils.Random;
 
 import openfl.display.Shape;
 import openfl.display.CapsStyle;
+import openfl.display.JointStyle;
 import openfl.display.Graphics;
 import openfl.display.Sprite;
 import openfl.geom.Point;
+
+import com.watabou.utils.GraphicsExtender;
 
 import com.watabou.geom.Polygon;
 import com.watabou.geom.GeomUtils;
@@ -14,6 +17,7 @@ import com.watabou.geom.GeomUtils;
 import com.watabou.towngenerator.wards.*;
 import com.watabou.towngenerator.building.CurtainWall;
 import com.watabou.towngenerator.building.Model;
+import com.watabou.towngenerator.building.Patch;
 
 using com.watabou.utils.ArrayExtender;
 using com.watabou.utils.GraphicsExtender;
@@ -41,6 +45,10 @@ class CityMap extends Sprite {
 	// 4 a random mix of the above per tower.
 	public static var towerStyle:Int = 0;
 
+	// Surrounding terrain: 0 none, 1 woods, 2 mountains, 3 swamp,
+	// 4 cavern (the city sits in a giant cave), 5 dense forest.
+	public static var terrain:Int = 0;
+
 	// index 0 keeps the current MOJEEB/DEFAULT look; 1-9 select one of
 	// the numbered earth-tone/architectural palette pairs.
 	public static function applyPalette( index:Int ):Void {
@@ -60,6 +68,48 @@ class CityMap extends Sprite {
 		brush_advanced = new BrushAdvanced( advanced_palette );
 
 		var model = Model.instance;
+		var hasWater = model.seaShape != null || model.riverShape != null;
+
+		patches = [];
+
+		function renderPatch( patch:Patch ):Void {
+			var patchView = new PatchView( patch );
+			if (drawWard( patchView.graphics, patch ))
+				addChild( patchView );
+			patches.push( patchView );
+		}
+
+		// Surrounding terrain (forest / mountains / swamp) is the lowest
+		// layer of all: farms, roads, water and buildings all draw over it,
+		// so hillside blocks sit on the elevation colours and rivers and
+		// seas cut smoothly through relief and groves.
+		if ((terrain >= 1 && terrain <= 3) || terrain == 5) {
+			var terrainView = new Shape();
+			drawTerrainScatter( terrainView.graphics, model );
+			addChild( terrainView );
+		}
+
+		// Under the water: farmland and parks — open ground the water is
+		// allowed to cut off. Then the water itself.
+		if (hasWater) {
+			for (patch in model.patches) {
+				var c = Type.getClass( patch.ward );
+				if (c == Farm || c == Park)
+					renderPatch( patch );
+			}
+
+			var waterView = new Shape();
+			drawWater( waterView.graphics, model );
+			addChild( waterView );
+
+			// Harbour docks reach from the shore out over the water; drawn under
+			// the buildings so their landward ends read as attached to the town.
+			if (model.docks != null && model.docks.length > 0) {
+				var dockView = new Shape();
+				drawDocks( dockView.graphics, model );
+				addChild( dockView );
+			}
+		}
 
 		for (road in model.roads) {
 			var roadView = new Shape();
@@ -67,81 +117,36 @@ class CityMap extends Sprite {
 			addChild( roadView );
 		}
 
-		patches = [];
+		// Bridges span the water, drawn under the buildings so buildings on
+		// the banks sit over the deck ends.
+		if (model.bridges != null && model.bridges.length > 0) {
+			var bridgeView = new Shape();
+			for (bridge in model.bridges)
+				drawBridge( bridgeView.graphics, bridge[0], bridge[1] );
+			addChild( bridgeView );
+		}
+
+		// Over the water: the buildings, which must never overlap it. (With
+		// no water, this pass draws everything, preserving the original look.)
 		for (patch in model.patches) {
-			var patchView = new PatchView( patch );
-			var patchDrawn = true;
-
-                        if (palette_type == 'NORMAL'){
-				var g = patchView.graphics;
-				switch (Type.getClass( patch.ward )) {
-					case Castle:
-						drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Cathedral:
-						drawBuilding( g, patch.ward.geometry, palette.light, palette.dark, Brush.NORMAL_STROKE );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
-						brush.setColor( g, palette.light, palette.dark );
-						for (building in patch.ward.geometry)
-						    g.drawPolygon( building );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Farm:
-						drawFarmField( g, patch.shape, palette.medium, palette.dark );
-						brush.setColor( g, palette.light, palette.dark );
-						for (building in patch.ward.geometry)
-						    g.drawPolygon( building );
-						drawRoofHatching( g, patch.ward.geometry, palette.dark );
-					case Park:
-						brush.setColor( g, palette.medium );
-						for (grove in patch.ward.geometry)
-							g.drawPolygon( grove );
-					default:
-						patchDrawn = false;
-				}
+			if (hasWater) {
+				var c = Type.getClass( patch.ward );
+				if (c == Farm || c == Park)
+					continue;
 			}
-			else if (palette_type == 'ADVANCED'){
-				var g = patchView.graphics;
-				switch (Type.getClass( patch.ward )) {
-					case Castle:
-						drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Cathedral:
-						drawBuilding( g, patch.ward.geometry, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
-						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-						for (building in patch.ward.geometry) {
-						    if (Random.bool(0.8)) {
-							brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-						    } else {
-							brush.setColor( g, advanced_palette.plot_dark, advanced_palette.building );
-						    }
-						    g.drawPolygon( building );
-						}
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Farm:
-						drawFarmField( g, patch.shape, advanced_palette.grass, advanced_palette.building );
-						brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
-						for (building in patch.ward.geometry)
-							g.drawPolygon( building );
-						drawRoofHatching( g, patch.ward.geometry, advanced_palette.building );
-					case Park:
-						brush.setColor( g, advanced_palette.grass );
-						for (grove in patch.ward.geometry)
-							g.drawPolygon( grove );
-					default:
-						patchDrawn = false;
-				}
-			}
-
-			patches.push( patchView );
-			if (patchDrawn)
-				addChild( patchView );
+			renderPatch( patch );
 		}
 
 		for (patch in patches)
 			addChild( patch.hotArea );
+
+		// The cavern swallows everything beyond its wall — drawn over the
+		// countryside, under the city wall (which stands inside the cave).
+		if (terrain == 4) {
+			var caveView = new Shape();
+			drawCavern( caveView.graphics, model );
+			addChild( caveView );
+		}
 
 		var walls = new Shape();
 		addChild( walls );
@@ -153,23 +158,310 @@ class CityMap extends Sprite {
 			drawWall( walls.graphics, cast( model.citadel.ward, Castle).wall, true, model.center );
 	}
 
+	// True if a building footprint touches the water, so it should be
+	// dropped (a house straddling the bank) rather than drawn on top of it.
+	private function buildingInWater( building:Polygon ):Bool {
+		var m = Model.instance;
+		if (m.seaShape == null && m.riverShape == null)
+			return false;
+		for (v in building)
+			if (m.isWater( v ))
+				return true;
+		return false;
+	}
+
+	// Draws one patch's ward. Returns false for wards with nothing to draw.
+	// Blend two colours; t=0 keeps a, t=1 gives b.
+	private static function mix( a:Int, b:Int, t:Float ):Int {
+		var ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+		var br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+		return (Std.int( ar + (br - ar) * t ) << 16) |
+		       (Std.int( ag + (bg - ag) * t ) << 8) |
+		        Std.int( ab + (bb - ab) * t );
+	}
+
+	// How sloppily each district is sketched (multiplier on `sketchy`):
+	// slums are scrawled, patrician wards and the castle are drawn with care.
+	private function wardSketchScale( cls:Class<Ward> ):Float {
+		return if (cls == Slum) 1.7
+		else if (cls == GateWard) 1.3
+		else if (cls == Farm) 1.2
+		else if (cls == MerchantWard) 0.85
+		else if (cls == MilitaryWard) 0.75
+		else if (cls == AdministrationWard) 0.6
+		else if (cls == Cathedral || cls == PatriciateWard) 0.5
+		else if (cls == Castle) 0.4
+		else 1.0;
+	}
+
+	// A slight identifying tint per district type, blended faintly into the
+	// building fill so neighbourhoods read differently without breaking the
+	// palette: gold for merchants, plum for the patriciate, steel for the
+	// military, blue-grey for administration, drab for the slums.
+	private function wardTint( cls:Class<Ward> ):Int {
+		return if (cls == MerchantWard) 0xC9A227
+		else if (cls == PatriciateWard) 0x7A4E7E
+		else if (cls == MilitaryWard) 0x46586A
+		else if (cls == AdministrationWard) 0x4E6E8E
+		else if (cls == Slum) 0x59493A
+		else if (cls == Cathedral) 0xB8B2D0
+		else -1;
+	}
+	private static inline var TINT = 0.13;
+
+	private function drawWard( g:Graphics, patch:Patch ):Bool {
+		var patchDrawn = true;
+		var cls = Type.getClass( patch.ward );
+
+		// Buildings must never overlap the water: clip out any individual
+		// house that straddles the bank (open ground — farms, parks — is left
+		// whole, since the water simply draws over it).
+		var geo = patch.ward.geometry;
+		if (geo != null && cls != Farm && cls != Park && (Model.instance.seaShape != null || Model.instance.riverShape != null))
+			geo = [for (b in geo) if (!buildingInWater( b )) b];
+
+		// Sloppiness varies by district (only matters when sketchy > 0)
+		GraphicsExtender.sketchScale = wardSketchScale( cls );
+
+		if (palette_type == 'NORMAL') {
+			switch (cls) {
+				case Castle:
+					drawBuilding( g, geo, palette.light, palette.dark, Brush.NORMAL_STROKE * 2 );
+					drawRoofHatching( g, geo, palette.dark );
+				case Cathedral:
+					drawBuilding( g, geo, palette.light, palette.dark, Brush.NORMAL_STROKE );
+					drawRoofHatching( g, geo, palette.dark );
+				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
+					brush.setColor( g, palette.light, palette.dark );
+					for (building in geo)
+					    g.drawPolygon( building );
+					drawRoofHatching( g, geo, palette.dark );
+				case Farm:
+					drawFarmField( g, patch.shape, palette.medium, palette.dark );
+					brush.setColor( g, palette.light, palette.dark );
+					for (building in geo)
+					    g.drawPolygon( building );
+					drawRoofHatching( g, geo, palette.dark );
+				case Park:
+					brush.setColor( g, palette.medium );
+					for (grove in geo)
+						g.drawPolygon( grove );
+				default:
+					patchDrawn = false;
+			}
+		}
+		else if (palette_type == 'ADVANCED') {
+			switch (cls) {
+				case Castle:
+					drawBuilding( g, geo, advanced_palette.plot_medium, advanced_palette.building, BrushAdvanced.NORMAL_STROKE * 2 );
+					drawRoofHatching( g, geo, advanced_palette.building );
+				case Cathedral:
+					drawBuilding( g, geo, mix( advanced_palette.plot_medium, wardTint( Cathedral ), TINT ), advanced_palette.building, BrushAdvanced.NORMAL_STROKE );
+					drawRoofHatching( g, geo, advanced_palette.building );
+				case Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard, MilitaryWard, PatriciateWard:
+					var tint = wardTint( cls );
+					var fillMed = tint == -1 ? advanced_palette.plot_medium : mix( advanced_palette.plot_medium, tint, TINT );
+					var fillDark = tint == -1 ? advanced_palette.plot_dark : mix( advanced_palette.plot_dark, tint, TINT );
+					for (building in geo) {
+					    if (Random.bool(0.8)) {
+						brush.setColor( g, fillMed, advanced_palette.building );
+					    } else {
+						brush.setColor( g, fillDark, advanced_palette.building );
+					    }
+					    g.drawPolygon( building );
+					}
+					drawRoofHatching( g, geo, advanced_palette.building );
+				case Farm:
+					drawFarmField( g, patch.shape, advanced_palette.grass, advanced_palette.building );
+					brush.setColor( g, advanced_palette.plot_medium, advanced_palette.building );
+					for (building in geo)
+						g.drawPolygon( building );
+					drawRoofHatching( g, geo, advanced_palette.building );
+				case Park:
+					brush.setColor( g, advanced_palette.grass );
+					for (grove in geo)
+						g.drawPolygon( grove );
+				default:
+					patchDrawn = false;
+			}
+		}
+
+		GraphicsExtender.sketchScale = 1.0;
+		return patchDrawn;
+	}
+
+	// Each dock is an open polyline skeleton (I, L, or the bar of a T).
+	// Drawn as narrow planking: a dark outline stroke with a lighter deck
+	// stroke over it, then faint cross-ticks for plank texture.
+	private function drawDocks( g:Graphics, model:Model ):Void {
+		var deck = palette_type == 'ADVANCED' ? advanced_palette.plot_dark : palette.medium;
+		var line = palette_type == 'ADVANCED' ? advanced_palette.building : palette.dark;
+
+		var w = Ward.MAIN_STREET * 0.9;		// much narrower than before
+
+		// dark outline under...
+		g.lineStyle( w + Brush.NORMAL_STROKE * 2, line, 1, false, null, CapsStyle.SQUARE, JointStyle.MITER );
+		for (dock in model.docks) {
+			g.moveToPoint( dock[0] );
+			for (i in 1...dock.length)
+				g.lineToPoint( dock[i] );
+		}
+
+		// ...deck over
+		g.lineStyle( w, deck, 1, false, null, CapsStyle.SQUARE, JointStyle.MITER );
+		for (dock in model.docks) {
+			g.moveToPoint( dock[0] );
+			for (i in 1...dock.length)
+				g.lineToPoint( dock[i] );
+		}
+
+		// plank ticks across each span
+		g.lineStyle( Brush.THIN_STROKE, line, 0.4, false, null, CapsStyle.NONE );
+		for (dock in model.docks)
+			for (i in 0...dock.length - 1) {
+				var a = dock[i];
+				var b = dock[i + 1];
+				var d = Point.distance( a, b );
+				if (d < 0.001) continue;
+				var ux = (b.x - a.x) / d, uy = (b.y - a.y) / d;
+				var nx = -uy * w * 0.5, ny = ux * w * 0.5;
+				var step = 2.4;
+				var s = step;
+				while (s < d - 0.5) {
+					var px = a.x + ux * s, py = a.y + uy * s;
+					g.moveTo( px + nx, py + ny );
+					g.lineTo( px - nx, py - ny );
+					s += step;
+				}
+			}
+	}
+
+	private function drawBridge( g:Graphics, a:Point, b:Point ):Void {
+		// A paper-coloured deck, no outline: it's drawn over the road so it
+		// hides the road's crossing of the open water, and buildings drawn on
+		// top of it hide the ends, so it reads as the road carrying across.
+		// Wide enough to fully cover the road (incl. its darker underlay).
+		g.lineStyle( (Ward.MAIN_STREET + Brush.NORMAL_STROKE) * 1.6, palette.paper, 1, false, null, CapsStyle.SQUARE );
+		g.moveTo( a.x, a.y );
+		g.lineTo( b.x, b.y );
+	}
+
+	private function drawWater( g:Graphics, model:Model ):Void {
+		// Bank/shore outlines first...
+		g.lineStyle( Brush.THICK_STROKE * 0.65, advanced_palette.water_dark, 0.9 );
+		if (model.seaShape != null)
+			g.drawPolygon( model.seaShape );
+		if (model.riverShape != null)
+			g.drawPolygon( model.riverShape );
+
+		// ...then the fills on top of them. Each fill covers the water-facing
+		// stretches of the outlines, leaving only the land-facing shoreline
+		// visible — so where the river runs into the sea the outlines vanish
+		// and the two bodies read as one merged surface. Sea and river are
+		// filled separately so their overlap doesn't even-odd cancel.
+		g.lineStyle( 0, 0, 0 );
+		if (model.seaShape != null) {
+			g.beginFill( advanced_palette.water );
+			g.drawPolygon( model.seaShape );
+			g.endFill();
+		}
+		if (model.riverShape != null) {
+			g.beginFill( advanced_palette.water );
+			g.drawPolygon( model.riverShape );
+			g.endFill();
+		}
+	}
+
 	private function drawRoad( g:Graphics, road:Street ):Void {
+		// Skip any stretch that runs out over water — roads never show crossing
+		// open water. Valid (near-perpendicular) river crossings are carried by
+		// a bridge deck; oblique ones just stop at the bank.
+		var m = Model.instance;
+		var clip = m.seaShape != null || m.riverShape != null;
+
+		function strokePolyline():Void {
+			var pen = false;
+			for (i in 0...road.length - 1) {
+				var mid = new Point( (road[i].x + road[i + 1].x) / 2, (road[i].y + road[i + 1].y) / 2 );
+				if (clip && m.isWater( mid )) { pen = false; continue; }
+				if (!pen) { g.moveToPoint( road[i] ); pen = true; }
+				g.lineToPoint( road[i + 1] );
+			}
+		}
+
 		g.lineStyle( Ward.MAIN_STREET + Brush.NORMAL_STROKE, palette.medium, false, null, CapsStyle.NONE );
-		g.drawPolyline( road );
+		strokePolyline();
 
 		g.lineStyle( Ward.MAIN_STREET - Brush.NORMAL_STROKE, palette.paper );
-		g.drawPolyline( road );
+		strokePolyline();
+	}
+
+	// March from a land point toward a water point and return the last spot
+	// still on land — where the wall should stop and its bank tower stand.
+	private function waterlineToward( land:Point, water:Point ):Point {
+		var m = Model.instance;
+		var d = Point.distance( land, water );
+		var n = Std.int( Math.max( 8, d / 1.5 ) );
+		var last = land;
+		for (k in 1...n + 1) {
+			var p = new Point( land.x + (water.x - land.x) * k / n, land.y + (water.y - land.y) * k / n );
+			if (m.isWater( p )) break;
+			last = p;
+		}
+		return last;
 	}
 
 	private function drawWall( g:Graphics, wall:CurtainWall, large:Bool, center:Point ):Void {
 		g.lineStyle( Brush.THICK_STROKE, palette.dark );
-		g.drawPolygon( wall.shape );
 
+		var m = Model.instance;
+		var hasWater = m.seaShape != null || m.riverShape != null;
+		var towerR = Brush.THICK_STROKE * (large ? 1.5 : 1);
+
+		// Ends of wall stubs clipped at the waterline, each of which gets a
+		// bank tower so both banks of a river gap read finished.
+		var bankTowers:Array<Point> = [];
+
+		// Draw only the enabled segments, so stretches opened for a harbour
+		// quay or a river water-gate leave a gap instead of a solid wall.
+		// A segment whose far vertex stands in the water is clipped at the
+		// waterline instead of dipping in.
+		var shape = wall.shape;
+		var len = shape.length;
+		for (i in 0...len)
+			if (wall.segments[i]) {
+				var a = shape[i];
+				var b = shape[(i + 1) % len];
+
+				if (hasWater) {
+					var aw = m.isWater( a );
+					var bw = m.isWater( b );
+					if (aw && bw) continue;			// entirely in water: nothing to draw
+					if (bw) {
+						b = waterlineToward( a, b );
+						bankTowers.push( b );
+					} else if (aw) {
+						a = waterlineToward( b, a );
+						bankTowers.push( a );
+					}
+				}
+
+				g.moveToPoint( a );
+				g.lineToPoint( b );
+			}
+
+		// Skip gate and tower markings that fall in water — those stretches
+		// are open water-gates / quay, not built defences.
 		for (gate in wall.gates)
-			drawGate( g, wall.shape, gate );
+			if (!(hasWater && m.isWater( gate )))
+				drawGate( g, wall.shape, gate );
 
 		for (t in wall.towers)
-			drawTower( g, t, Brush.THICK_STROKE * (large ? 1.5 : 1), center );
+			if (!(hasWater && m.isWater( t )))
+				drawTower( g, t, towerR, center );
+
+		for (t in bankTowers)
+			drawTower( g, t, towerR, center );
 	}
 
 	private function outwardDir( p:Point, center:Point ):Point {
@@ -416,5 +708,596 @@ class CityMap extends Sprite {
 			i += 2;
 		}
 		return segments;
+	}
+
+	// ------------------------------------------------------------------
+	// Surrounding terrain (the `terrain` URL param)
+
+	private static function pointInPoly( p:Point, poly:Polygon ):Bool {
+		var inside = false;
+		var n = poly.length;
+		var j = n - 1;
+		for (i in 0...n) {
+			var a = poly[i];
+			var b = poly[j];
+			if ((a.y > p.y) != (b.y > p.y) &&
+			    p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+				inside = !inside;
+			j = i;
+		}
+		return inside;
+	}
+
+	// Cached built-up patch shapes with bounding boxes, so the tens of
+	// thousands of terrain ground checks stay cheap.
+	private var tShapes:Array<Polygon>;
+	private var tBB:Array<Float>;
+
+	// A spot is free for terrain if it's on dry ground, outside every
+	// built-up patch, and not on a road.
+	private function terrainSpotFree( p:Point, model:Model ):Bool {
+		if ((model.seaShape != null || model.riverShape != null) && model.isWater( p ))
+			return false;
+
+		if (tShapes == null) {
+			tShapes = [];
+			tBB = [];
+			for (patch in model.patches)
+				if (patch.ward != null && patch.ward.geometry != null && patch.ward.geometry.length > 0) {
+					tShapes.push( patch.shape );
+					var x0 = Math.POSITIVE_INFINITY, y0 = Math.POSITIVE_INFINITY;
+					var x1 = Math.NEGATIVE_INFINITY, y1 = Math.NEGATIVE_INFINITY;
+					for (v in patch.shape) {
+						if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
+						if (v.y < y0) y0 = v.y; if (v.y > y1) y1 = v.y;
+					}
+					tBB.push( x0 ); tBB.push( y0 ); tBB.push( x1 ); tBB.push( y1 );
+				}
+		}
+
+		for (si in 0...tShapes.length) {
+			var b = si * 4;
+			if (p.x < tBB[b] || p.y < tBB[b + 1] || p.x > tBB[b + 2] || p.y > tBB[b + 3])
+				continue;
+			if (pointInPoly( p, tShapes[si] ))
+				return false;
+		}
+
+		if (model.arteries != null)
+			for (a in model.arteries)
+				for (i in 0...a.length - 1) {
+					var ax = a[i].x, ay = a[i].y;
+					var dx = a[i + 1].x - ax, dy = a[i + 1].y - ay;
+					var l2 = dx * dx + dy * dy;
+					if (l2 < 1e-9) continue;
+					var t = ((p.x - ax) * dx + (p.y - ay) * dy) / l2;
+					t = t < 0 ? 0 : (t > 1 ? 1 : t);
+					var ddx = p.x - (ax + dx * t), ddy = p.y - (ay + dy * t);
+					if (ddx * ddx + ddy * ddy < 36) return false;
+				}
+
+		return true;
+	}
+
+	// Like terrainSpotFree, but requires a whole disc of radius r to be
+	// clear, so a tree canopy can't poke under a neighbouring building.
+	private function terrainClear( p:Point, r:Float, model:Model ):Bool {
+		if (!terrainSpotFree( p, model )) return false;
+		for (q in 0...4) {
+			var a = q * Math.PI / 2;
+			if (!terrainSpotFree( new Point( p.x + Math.cos( a ) * r, p.y + Math.sin( a ) * r ), model ))
+				return false;
+		}
+		return true;
+	}
+
+	// A random free point in the countryside band around the city, or null.
+	private function freeSpot( model:Model, cr:Float, c:Point, rMin:Float, rMax:Float ):Point {
+		for (attempt in 0...40) {
+			var ang = Random.float() * Math.PI * 2;
+			var rad = cr * (rMin + Random.float() * (rMax - rMin));
+			var p = new Point( c.x + Math.cos( ang ) * rad, c.y + Math.sin( ang ) * rad );
+			if (terrainSpotFree( p, model ))
+				return p;
+		}
+		return null;
+	}
+
+	// Scattered forest / mountains / swamp in a ring around the city.
+	private function drawTerrainScatter( g:Graphics, model:Model ):Void {
+		var cr = model.cityRadius;
+		var c = model.center;
+
+		switch (terrain) {
+			case 1, 5: // woods (1) / dense forest (5): fused organic groves
+				var canopy = mix( advanced_palette.grass, 0x1E3320, 0.28 );
+				var lineC = mix( canopy, palette.dark, 0.55 );
+				var deep = mix( canopy, 0x14251A, 0.4 );
+
+				// Groves: each is a clump of overlapping canopy blobs drawn
+				// in two passes — every blob slightly enlarged in the outline
+				// colour first, then the canopy fill over it — so the circles
+				// fuse into one woodland mass with a single bumpy edge.
+				var dense = terrain == 5;
+				var groves = dense ? 110 + Random.int( 0, 40 ) : 16 + Random.int( 0, 8 );
+				for (gi in 0...groves) {
+					var gc = freeSpot( model, cr, c, 0.55, 1.8 );
+					if (gc == null) continue;
+
+					var R = cr * (0.09 + Random.float() * 0.15);
+					var blobs:Array<{x:Float, y:Float, r:Float}> = [];
+					var m = 10 + Random.int( 0, 14 );
+					for (bi in 0...m) {
+						var a = Random.float() * Math.PI * 2;
+						var d = Math.sqrt( Random.float() ) * R * 0.75;
+						var p = new Point( gc.x + Math.cos( a ) * d, gc.y + Math.sin( a ) * d * 0.8 );
+						var rr = R * (0.28 + Random.float() * 0.22);
+						if (!terrainClear( p, rr * 0.9, model )) continue;
+						blobs.push( {x: p.x, y: p.y, r: rr} );
+					}
+					if (blobs.length < 4) continue;
+
+					// One fill per circle: overlapping circles in a single fill
+					// cancel to rings under the even-odd rule, so each blob is
+					// its own fill and the opaque overdraw unions them solidly.
+					g.lineStyle( 0, 0, 0 );
+					for (b in blobs) {
+						g.beginFill( lineC );
+						g.drawCircle( b.x, b.y, b.r + 0.9 );
+						g.endFill();
+					}
+					for (b in blobs) {
+						g.beginFill( canopy );
+						g.drawCircle( b.x, b.y, b.r );
+						g.endFill();
+					}
+
+					// interior texture: darker canopy clumps
+					for (b in blobs)
+						if (Random.bool( 0.45 )) {
+							g.beginFill( deep, 0.35 );
+							g.drawCircle( b.x + (Random.float() - 0.5) * b.r * 0.6, b.y + (Random.float() - 0.5) * b.r * 0.6, b.r * 0.4 );
+							g.endFill();
+						}
+				}
+
+				// ...and a few lone trees between the groves
+				for (k in 0...(dense ? 150 : 30)) {
+					var p = freeSpot( model, cr, c, 0.55, 2.0 );
+					if (p == null) continue;
+					var r = 1.6 + Random.float() * 1.6;
+					if (!terrainClear( p, r + 0.7, model )) continue;
+					g.lineStyle( 0, 0, 0 );
+					g.beginFill( lineC );
+					g.drawCircle( p.x, p.y, r + 0.7 );
+					g.endFill();
+					g.beginFill( canopy );
+					g.drawCircle( p.x, p.y, r );
+					g.endFill();
+				}
+
+			case 2: // mountains: additive topographic contours (level-sets)
+				drawTopoMountains( g, model, cr, c );
+
+			case 3: // swamp: grass tufts over damp speckles
+				var tuft = mix( advanced_palette.grass, 0x33441F, 0.45 );
+				var damp = advanced_palette.water;
+				var spots:Array<Point> = [];
+				for (k in 0...450) {
+					var ang = Random.float() * Math.PI * 2;
+					var rad = cr * (0.55 + Random.float() * 1.5);
+					var p = new Point( c.x + Math.cos( ang ) * rad, c.y + Math.sin( ang ) * rad );
+					if (terrainSpotFree( p, model ))
+						spots.push( p );
+				}
+				for (p in spots) {
+					if (Random.bool( 0.5 )) {
+						g.lineStyle( 0, 0, 0 );
+						g.beginFill( damp, 0.28 );
+						g.drawEllipse( p.x - 3, p.y - 1.1, 6, 2.2 );
+						g.endFill();
+					}
+					g.lineStyle( Brush.THIN_STROKE, tuft, 0.95 );
+					var blades = 3 + Random.int( 0, 3 );
+					for (b in 0...blades) {
+						var bx = p.x + (b - blades / 2) * 0.8;
+						var lean = (Random.float() - 0.5) * 1.6;
+						var hh = 1.6 + Random.float() * 1.8;
+						g.moveTo( bx, p.y );
+						g.lineTo( bx + lean, p.y - hh );
+					}
+				}
+		}
+	}
+
+	// Mountains as a real elevation model, shaded like a relief map: a
+	// few bumps of very different scales are summed into one heightfield,
+	// and each elevation band is FILLED bottom-up with hypsometric tints
+	// (green lowlands, tan and ochre slopes, grey and near-white summits),
+	// traced with filled marching squares. Because every band is a level
+	// of the same summed field, neighbouring rises merge additively and
+	// bands can never overlap. Small bumps only ever reach the green
+	// bands (hilly mounds); the great massifs — larger than the city and
+	// anchored far out so only their flanks enter the view — climb the
+	// whole ramp to the pale summits.
+	private function drawTopoMountains( g:Graphics, model:Model, cr:Float, c:Point ):Void {
+
+		// --- the bumps, in three scale classes ---
+		var bumps:Array<{x:Float, y:Float, a:Float, b:Float, ct:Float, st:Float, h:Float, ph:Float}> = [];
+		// Clearance from the river, so a rise can never sit astride it: the
+		// river then reads as flowing through the valley between the ranges.
+		// Clearance scales with the bump, so foothills may still approach
+		// the banks while the great massifs keep well away.
+		function riverClear( mc:Point, a:Float ):Bool {
+			if (model.riverPath == null) return true;
+			var clearance = a * 1.1 + cr * 0.12;
+			var i = 0;
+			while (i < model.riverPath.length) {
+				if (Point.distance( mc, model.riverPath[i] ) < clearance)
+					return false;
+				i += 2;
+			}
+			return true;
+		}
+
+		function addBump( band0:Float, band1:Float, r0:Float, r1:Float, h0:Float ):Void {
+			for (attempt in 0...8) {
+				var mc = freeSpot( model, cr, c, band0, band1 );
+				if (mc == null) continue;
+				var a = cr * (r0 + Random.float() * (r1 - r0));
+				if (!riverClear( mc, a )) continue;
+				var theta = Random.float() * Math.PI;
+				bumps.push( {
+					x: mc.x, y: mc.y,
+					a: a, b: a * (0.5 + Random.float() * 0.35),
+					ct: Math.cos( theta ), st: Math.sin( theta ),
+					h: h0 * (0.8 + Random.float() * 0.4),
+					ph: Random.float() * Math.PI * 2
+				} );
+				return;
+			}
+		}
+
+		// great massifs: bigger than the city, mostly beyond the frame
+		var big = 2 + Random.int( 0, 2 );
+		for (i in 0...big) addBump( 1.7, 2.7, 1.2, 2.6, 1.15 );
+		// mid-size mountains
+		var mid = 3 + Random.int( 0, 2 );
+		for (i in 0...mid) addBump( 1.15, 2.1, 0.4, 0.8, 0.55 );
+		// low hills: green mounds only
+		var small = 4 + Random.int( 0, 3 );
+		for (i in 0...small) addBump( 0.7, 1.9, 0.15, 0.3, 0.3 );
+		if (bumps.length == 0) return;
+
+		function field( px:Float, py:Float ):Float {
+			var f = 0.0;
+			for (bp in bumps) {
+				var dx = px - bp.x, dy = py - bp.y;
+				var u = dx * bp.ct + dy * bp.st;
+				var v = -dx * bp.st + dy * bp.ct;
+				var ang = Math.atan2( v, u );
+				var wob = 1 + 0.13 * Math.sin( 3 * ang + bp.ph ) + 0.07 * Math.sin( 5 * ang - bp.ph );
+				var r2 = (u * u) / (bp.a * bp.a) + (v * v) / (bp.b * bp.b);
+				f += bp.h * Math.exp( -r2 * 2.2 / wob );
+			}
+
+			// The land flattens smoothly into the plain the city stands on:
+			// a radial smoothstep fades every rise to zero toward the centre,
+			// so contours curve gently around the settlement instead of being
+			// chopped off cell-by-cell at its edge.
+			var ddx = px - c.x, ddy = py - c.y;
+			var rr = Math.sqrt( ddx * ddx + ddy * ddy ) / cr;
+			var t = (rr - 0.8) / 0.4;
+			t = t < 0 ? 0 : (t > 1 ? 1 : t);
+			return f * t * t * (3 - 2 * t);
+		}
+
+		// --- the grid, clipped to a window around the view ---
+		var win = cr * 3.3;
+		var minX = Math.POSITIVE_INFINITY, minY = Math.POSITIVE_INFINITY;
+		var maxX = Math.NEGATIVE_INFINITY, maxY = Math.NEGATIVE_INFINITY;
+		for (bp in bumps) {
+			minX = Math.min( minX, bp.x - bp.a * 1.6 ); maxX = Math.max( maxX, bp.x + bp.a * 1.6 );
+			minY = Math.min( minY, bp.y - bp.a * 1.6 ); maxY = Math.max( maxY, bp.y + bp.a * 1.6 );
+		}
+		minX = Math.max( minX, c.x - win ); maxX = Math.min( maxX, c.x + win );
+		minY = Math.max( minY, c.y - win ); maxY = Math.min( maxY, c.y + win );
+		if (minX >= maxX || minY >= maxY) return;
+
+		var cell = cr / 30;
+		var nx = Std.int( Math.ceil( (maxX - minX) / cell ) ) + 1;
+		var ny = Std.int( Math.ceil( (maxY - minY) / cell ) ) + 1;
+		if (nx < 2 || ny < 2) return;
+
+		var F = new Array<Float>();
+		for (j in 0...ny)
+			for (i in 0...nx)
+				F.push( field( minX + i * cell, minY + j * cell ) );
+
+		// For the relief fills only the city proper (the wall/border
+		// circumference, plus the citadel) masks cells. Buildings, farms
+		// and roads all draw over the terrain layer — hillside blocks sit
+		// ON the elevation colours — and the water is drawn above the
+		// relief, so shorelines stay smooth and mountains simply run down
+		// into the sea or part for a river.
+		// --- hypsometric tints, low to high, harmonized with the palette ---
+		var levels = [0.13, 0.25, 0.37, 0.49, 0.61, 0.73, 0.85, 0.94];
+		var ramp = [
+			mix( 0x8FB07E, palette.paper, 0.3 ),
+			mix( 0xB4C48D, palette.paper, 0.22 ),
+			mix( 0xD6CD9C, palette.paper, 0.15 ),
+			mix( 0xE0C285, palette.paper, 0.1 ),
+			0xD8A96F,
+			0xC0997A,
+			0xB1ABA5,
+			0xECEAE6
+		];
+		var lineC = mix( palette.dark, palette.medium, 0.35 );
+
+		// One filled pass per band, painted bottom-up so each higher band
+		// sits on the one below. Interior runs of fully-covered cells merge
+		// into single rectangles; boundary cells contribute the exact
+		// clipped polygon, so band edges are smooth.
+		for (li in 0...levels.length) {
+			var L = levels[li];
+			g.lineStyle( 0, 0, 0 );
+			g.beginFill( ramp[li] );
+
+			for (j in 0...ny - 1) {
+				var y0 = minY + j * cell;
+				var y1 = y0 + cell;
+				var runStart = -1;
+
+				inline function flushRun( endI:Int ):Void {
+					if (runStart != -1) {
+						g.drawRect( minX + runStart * cell, y0, (endI - runStart) * cell, cell );
+						runStart = -1;
+					}
+				}
+
+				for (i in 0...nx - 1) {
+					var f00 = F[j * nx + i],       f10 = F[j * nx + i + 1];
+					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
+					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
+
+					if (idx == 0) { flushRun( i ); continue; }
+					if (idx == 15) { if (runStart == -1) runStart = i; continue; }
+					flushRun( i );
+
+					var x0 = minX + i * cell;
+					var x1 = x0 + cell;
+
+					inline function lerpT( fa:Float, fb:Float ):Float
+						return fa == fb ? 0.5 : (L - fa) / (fb - fa);
+					var top    = new Point( x0 + lerpT( f00, f10 ) * cell, y0 );
+					var bottom = new Point( x0 + lerpT( f01, f11 ) * cell, y1 );
+					var left   = new Point( x0, y0 + lerpT( f00, f01 ) * cell );
+					var right  = new Point( x1, y0 + lerpT( f10, f11 ) * cell );
+					var TL = new Point( x0, y0 ), TR = new Point( x1, y0 );
+					var BR = new Point( x1, y1 ), BL = new Point( x0, y1 );
+
+					inline function poly( pts:Array<Point> ):Void {
+						g.moveTo( pts[0].x, pts[0].y );
+						for (q in 1...pts.length)
+							g.lineTo( pts[q].x, pts[q].y );
+						g.lineTo( pts[0].x, pts[0].y );
+					}
+
+					var centerAbove = (f00 + f10 + f01 + f11) / 4 > L;
+					switch (idx) {
+						case 1:  poly( [TL, top, left] );
+						case 2:  poly( [top, TR, right] );
+						case 3:  poly( [TL, TR, right, left] );
+						case 4:  poly( [right, BR, bottom] );
+						case 5:
+							if (centerAbove) poly( [TL, top, right, BR, bottom, left] );
+							else { poly( [TL, top, left] ); poly( [right, BR, bottom] ); }
+						case 6:  poly( [top, TR, BR, bottom] );
+						case 7:  poly( [TL, TR, BR, bottom, left] );
+						case 8:  poly( [left, bottom, BL] );
+						case 9:  poly( [TL, top, bottom, BL] );
+						case 10:
+							if (centerAbove) poly( [top, TR, right, bottom, BL, left] );
+							else { poly( [top, TR, right] ); poly( [left, bottom, BL] ); }
+						case 11: poly( [TL, TR, right, bottom, BL] );
+						case 12: poly( [right, BR, BL, left] );
+						case 13: poly( [TL, top, right, BR, BL] );
+						case 14: poly( [top, TR, BR, BL, left] );
+						default:
+					}
+				}
+				flushRun( nx - 1 );
+			}
+			g.endFill();
+		}
+
+		// A whisper of contour line on each band edge to keep the map feel
+		g.lineStyle( Brush.THIN_STROKE, lineC, 0.25 );
+		for (li in 1...levels.length) {
+			var L = levels[li];
+			for (j in 0...ny - 1)
+				for (i in 0...nx - 1) {
+					var f00 = F[j * nx + i],       f10 = F[j * nx + i + 1];
+					var f01 = F[(j + 1) * nx + i], f11 = F[(j + 1) * nx + i + 1];
+					var idx = (f00 > L ? 1 : 0) | (f10 > L ? 2 : 0) | (f11 > L ? 4 : 0) | (f01 > L ? 8 : 0);
+					if (idx == 0 || idx == 15) continue;
+
+					var x0 = minX + i * cell, y0 = minY + j * cell;
+					var x1 = x0 + cell,       y1 = y0 + cell;
+					inline function lerpT( fa:Float, fb:Float ):Float
+						return fa == fb ? 0.5 : (L - fa) / (fb - fa);
+					var top    = new Point( x0 + lerpT( f00, f10 ) * cell, y0 );
+					var bottom = new Point( x0 + lerpT( f01, f11 ) * cell, y1 );
+					var left   = new Point( x0, y0 + lerpT( f00, f01 ) * cell );
+					var right  = new Point( x1, y0 + lerpT( f10, f11 ) * cell );
+
+					inline function seg( a:Point, b:Point ):Void {
+						g.moveTo( a.x, a.y );
+						g.lineTo( b.x, b.y );
+					}
+
+					var centerAbove = (f00 + f10 + f01 + f11) / 4 > L;
+					switch (idx) {
+						case 1, 14:  seg( left, top );
+						case 2, 13:  seg( top, right );
+						case 3, 12:  seg( left, right );
+						case 4, 11:  seg( right, bottom );
+						case 5:
+							if (centerAbove) { seg( top, right ); seg( left, bottom ); }
+							else             { seg( left, top ); seg( right, bottom ); }
+						case 6, 9:   seg( top, bottom );
+						case 7, 8:   seg( left, bottom );
+						case 10:
+							if (centerAbove) { seg( left, top ); seg( right, bottom ); }
+							else             { seg( top, right ); seg( left, bottom ); }
+						default:
+					}
+				}
+		}
+	}
+
+	// A giant cave: everything beyond the cave wall is rock-dark, with a
+	// jagged rim closing around the city. All the rock — wall, stalactite
+	// teeth, inward outcroppings and free-standing pillars — is drawn in
+	// two opaque passes (enlarged lip-colour shapes first, rock fills on
+	// top), so overlapping pieces fuse into one mass with a single
+	// continuous lip instead of reading as separate stamped objects.
+	private function drawCavern( g:Graphics, model:Model ):Void {
+		var cr = model.cityRadius;
+		var c = model.center;
+		var rock = mix( palette.dark, 0x000000, 0.45 );
+		var lipW = Brush.THICK_STROKE * 1.2;
+
+		// --- geometry first, so both passes draw the exact same shapes ---
+
+		// Jagged cave-wall rim: low harmonics for big irregular lobes,
+		// higher ones and per-vertex noise for rough rock.
+		var n = 72;
+		var radii:Array<Float> = [];
+		var ph1 = Random.float() * Math.PI * 2;
+		var ph2 = Random.float() * Math.PI * 2;
+		var ph3 = Random.float() * Math.PI * 2;
+		for (i in 0...n) {
+			var a = i / n * Math.PI * 2;
+			var wob = 1
+				+ 0.13 * Math.sin( 2 * a + ph1 )
+				+ 0.16 * Math.sin( 3 * a + ph2 )
+				+ 0.07 * Math.sin( 6 * a + ph3 )
+				+ (Random.float() - 0.5) * 0.34;
+			radii.push( cr * 1.32 * wob );
+		}
+		for (pass in 0...2)
+			radii = [for (i in 0...n) (radii[(i + n - 1) % n] + radii[i] * 2 + radii[(i + 1) % n]) / 4];
+
+		function ringAt( shrink:Float ):Array<Point>
+			return [for (i in 0...n) {
+				var a = -(i / n) * Math.PI * 2;	// negative: reverse winding
+				new Point( c.x + Math.cos( a ) * (radii[i] - shrink), c.y + Math.sin( a ) * (radii[i] - shrink) );
+			}];
+
+		var rim = ringAt( 0 );
+		var rimIn = ringAt( lipW );	// the lip band between rim and rimIn
+
+		// Stalactite teeth along the rim
+		var teeth:Array<{p0:Point, p1:Point, tx:Float, ty:Float, ex:Float, ey:Float}> = [];
+		var ti = 0;
+		while (ti < n) {
+			var p0 = rim[ti];
+			var p1 = rim[(ti + 1) % n];
+			var mx = (p0.x + p1.x) / 2, my = (p0.y + p1.y) / 2;
+			var inx = c.x - mx, iny = c.y - my;
+			var il = Math.sqrt( inx * inx + iny * iny );
+			var tl = cr * (0.03 + Random.float() * 0.05);
+			teeth.push( {p0: p0, p1: p1, tx: mx + inx / il * tl, ty: my + iny / il * tl, ex: inx / il, ey: iny / il} );
+			ti += 1 + Random.int( 0, 2 );
+		}
+
+		// Rocky outcroppings bulging inward off the wall
+		var outcrops:Array<{oc:Point, orad:Array<Float>}> = [];
+		var m = 12;
+		for (k in 0...5 + Random.int( 0, 4 )) {
+			var vi = Random.int( 0, n );
+			var rp = rim[vi];
+			var rl = cr * (0.07 + Random.float() * 0.12);
+			var dirx = c.x - rp.x, diry = c.y - rp.y;
+			var dl = Math.sqrt( dirx * dirx + diry * diry );
+			var oc = new Point( rp.x + dirx / dl * rl * 0.7, rp.y + diry / dl * rl * 0.7 );
+			if (!terrainSpotFree( oc, model )) continue;
+			var orad = [for (q in 0...m) rl * (0.75 + Random.float() * 0.5)];
+			for (pass in 0...2)
+				orad = [for (q in 0...m) (orad[(q + m - 1) % m] + orad[q] * 2 + orad[(q + 1) % m]) / 4];
+			outcrops.push( {oc: oc, orad: orad} );
+		}
+
+		// Free-standing pillars, spawned as little clusters of overlapping
+		// columns — and some near enough the wall to merge with it.
+		var pillars:Array<{p:Point, r:Float}> = [];
+		for (k in 0...5 + Random.int( 0, 4 )) {
+			var pp = freeSpot( model, cr, c, 1.0, 1.32 );
+			if (pp == null) continue;
+			var r0 = 1.5 + Random.float() * 3.5;
+			pillars.push( {p: pp, r: r0} );
+			for (extra in 0...Random.int( 0, 3 )) {
+				var ea = Random.float() * Math.PI * 2;
+				var er = r0 * (0.5 + Random.float() * 0.5);
+				var ep = new Point( pp.x + Math.cos( ea ) * r0 * 1.1, pp.y + Math.sin( ea ) * r0 * 1.1 );
+				if (terrainSpotFree( ep, model ))
+					pillars.push( {p: ep, r: er} );
+			}
+		}
+
+		// --- two passes: lip colour enlarged, then rock fills over ---
+
+		inline function blob( oc:Point, orad:Array<Float>, grow:Float ):Void {
+			for (q in 0...m + 1) {
+				var qa = (q % m) / m * Math.PI * 2;
+				var qx = oc.x + Math.cos( qa ) * (orad[q % m] + grow);
+				var qy = oc.y + Math.sin( qa ) * (orad[q % m] + grow);
+				if (q == 0) g.moveTo( qx, qy ) else g.lineTo( qx, qy );
+			}
+		}
+
+		var far = cr * 6;
+		g.lineStyle( 0, 0, 0 );
+
+		for (pass in 0...2) {
+			var grow = pass == 0 ? lipW : 0.0;
+			var hole = pass == 0 ? rimIn : rim;
+			g.beginFill( pass == 0 ? palette.dark : rock );
+
+			// the dark surround with the cave opening punched out
+			g.moveTo( c.x - far, c.y - far );
+			g.lineTo( c.x + far, c.y - far );
+			g.lineTo( c.x + far, c.y + far );
+			g.lineTo( c.x - far, c.y + far );
+			g.lineTo( c.x - far, c.y - far );
+			g.moveTo( hole[0].x, hole[0].y );
+			for (i in 1...n)
+				g.lineTo( hole[i].x, hole[i].y );
+			g.lineTo( hole[0].x, hole[0].y );
+			g.endFill();
+
+			// teeth (tips reach a lip further in pass 0)
+			g.beginFill( pass == 0 ? palette.dark : rock );
+			for (t in teeth) {
+				g.moveTo( t.p0.x, t.p0.y );
+				g.lineTo( t.tx + t.ex * grow, t.ty + t.ey * grow );
+				g.lineTo( t.p1.x, t.p1.y );
+				g.lineTo( t.p0.x, t.p0.y );
+			}
+			g.endFill();
+
+			// outcrops and pillars, one fill each so overlaps union solidly
+			for (o in outcrops) {
+				g.beginFill( pass == 0 ? palette.dark : rock );
+				blob( o.oc, o.orad, grow );
+				g.endFill();
+			}
+			for (pl in pillars) {
+				g.beginFill( pass == 0 ? palette.dark : rock );
+				g.drawCircle( pl.p.x, pl.p.y, pl.r + grow );
+				g.endFill();
+			}
+		}
 	}
 }

@@ -14,12 +14,14 @@ class Patch {
 
 	public var withinWalls	: Bool;
 	public var withinCity	: Bool;
+	public var water		: Bool;
 
 	public inline function new( vertices:Array<Point> ) {
 		this.shape = new Polygon( vertices );
 
 		withinCity	= false;
 		withinWalls	= false;
+		water		= false;
 	}
 
 	public static function fromRegion( r:Region ):Patch

@@ -21,6 +21,18 @@ class Main extends Game {
 		GraphicsExtender.sketchy = StateManager.sketchy;
 		CityMap.roofs = StateManager.roofs;
 		CityMap.towerStyle = StateManager.towers;
+		CityMap.terrain = StateManager.terrain;
+
+		#if html5
+		// Cap the page size: constrain the canvas element with CSS so the
+		// map never renders larger than the requested square, whatever the
+		// window size. A style tag works whether or not the canvas exists yet.
+		if (StateManager.maxpage > 0) {
+			var style = js.Browser.document.createStyleElement();
+			style.textContent = 'canvas{max-width:' + StateManager.maxpage + 'px;max-height:' + StateManager.maxpage + 'px;}';
+			js.Browser.document.head.appendChild( style );
+		}
+		#end
 
 		if (StateManager.trans == false) {
 		 	   stage.color = CityMap.palette.paper;
@@ -37,7 +49,9 @@ class Main extends Game {
 			   StateManager.citadel,
 			   StateManager.parks,
 			   StateManager.farms,
-			   StateManager.temples );
+			   StateManager.temples,
+			   StateManager.river,
+			   StateManager.coast );
 
 		super( TownScene );
 	}
