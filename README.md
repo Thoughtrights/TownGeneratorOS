@@ -1,10 +1,10 @@
 # Medieval Fantasy City Generator
-An extended fork of the source of the [Medieval Fantasy City Generator](https://watabou.itch.io/medieval-fantasy-city-generator/) (also available [here](http://fantasycities.watabou.ru/?size=15&seed=682063530)).
-The original open-source release lacked waterbodies and an options UI; this fork adds rivers with bridges and water-gates, coasts with harbours and docks, estuaries, surrounding terrain (woods, dense forest, topographic mountains, swamp, cavern), colour palettes, per-district tints, hand-sketched rendering, configurable parks/farms/temples/towers, and full control of everything through URL query arguments — so a map can be embedded anywhere as a lightly dynamic, procedural image.
+An extended fork of the source of an early open source release of the [Medieval Fantasy City Generator](https://watabou.itch.io/medieval-fantasy-city-generator/) (also available [here](http://fantasycities.watabou.ru/?size=15&seed=682063530)).
+
+The main focus of this build is to allow the generated maps to be iframe-embedded in web pages using query-args for all options. This necessitated the need to enhance this old (non-modern) original open-source release. It needed rivers and thoughtful bridges. It needed oceans or bays and docks. It also got changes towers and walls, mountains, swamps, trees, forests, water-gates, color palettes, sketch styles, and even cities in caverns. It also got variable numbers of farms and parks.
 
 You'll need [OpenFL](https://github.com/openfl/openfl) and [msignal](https://github.com/massiveinteractive/msignal) 
 to run this code, both available through `haxelib`.
-
 
 
 ## Building
@@ -26,7 +26,7 @@ to run this code, both available through `haxelib`.
 | `temples` | `0` / `1` | Whether the city has a main temple. `1` (default) guarantees one, placed as close to the plaza as possible; `0` removes it entirely. |
 | `farms` | `0`, `1`, `2`, ... | Exact number of countryside patches to turn into farms (not just a fixed per-patch chance). `0` removes them entirely. Default `6`. See below for how they're drawn. |
 | `palette` | `0`-`9` | Color palette. `0` (or omitted) is the current default look; `1`-`9` select one of nine earth-tone/architectural-diagram palettes (see below). |
-| `sketchy` | `0`-`5` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. `0` (default) disables it; higher values make it progressively wavier. The scale is finer than it used to be (today's `5` equals the old `2`), and sloppiness varies by district — slums are scrawled, patrician wards and the castle are drawn with care. |
+| `sketchy` | `0`-`5` | Rough, hand-sketched edges on buildings, walls, and roads instead of perfectly straight lines. `0` (default) disables it; higher values make it progressively wavier. Sloppiness varies by district — slums are scrawled, patrician wards and the castle are drawn with care. |
 | `roofs` | `0` / `1` | Gable-roof lines on each building: a ridge line down its long axis, plus a few short rafters perpendicular to it on one side only. Works with every palette, and combines with `sketchy`. |
 | `towers` | `0`-`4` | Wall tower shape. `0` (default) round; `1` square (flat face pointing outward); `2` hexagon (vertex pointing outward); `3` round with a few little spikes on the outward-facing side; `4` a random mix of the above per tower. |
 | `river` | `0` / `1` | `1` runs a gently bending river through the city, with the built-up area on both banks joined by short bridges where the streets cross. Default `0`. See below. |
