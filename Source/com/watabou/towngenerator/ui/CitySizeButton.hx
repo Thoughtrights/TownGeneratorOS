@@ -33,7 +33,8 @@ class CitySizeButton extends Button {
 			   StateManager.farms,
 			   StateManager.temples,
 			   StateManager.river,
-			   StateManager.coast );
+			   StateManager.coast,
+			   StateManager.moat );
 
 		Game.switchScene( TownScene );
 	}

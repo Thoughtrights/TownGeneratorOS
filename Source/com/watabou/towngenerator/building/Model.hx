@@ -50,6 +50,9 @@ class Model {
 	private var riverHalves	: Array<Float>;	// per-centreline-vertex half-width (flare)
 	public var bridges		: Array<Array<Point>>;	// each [bankA, bankB] deck endpoints
 	public var docks		: Array<Polygon>;		// narrow I/L harbour docks
+	private var moatNeeded	: Bool;
+	public var moatOuter	: Polygon;		// outer bank of the moat ring
+	public var moatInner	: Polygon;		// inner bank (hugging the wall)
 
 	// Below this patch count, folding the citadel into the main wall's
 	// boundary produces a wall shape that isn't simply connected (too
@@ -96,7 +99,7 @@ class Model {
 	public var inputPlaza   : Bool;
 	public var inputCitadel : Bool;
 
-	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1, inputFarms=6, inputTemples=true, inputRiver=false, inputCoast=false ) {
+	public function new( nPatches=-1, seed=-1, inputWalls=true, inputPlaza=true, inputCitadel, inputParks=1, inputFarms=6, inputTemples=true, inputRiver=false, inputCoast=false, inputMoat=false ) {
 
 		if (seed > 0) Random.reset( seed );
 		this.nPatches = nPatches != -1 ? nPatches : 15;
@@ -121,6 +124,8 @@ class Model {
 		templesNeeded = inputTemples == true;
 		riverNeeded = inputRiver == true;
 		coastNeeded = inputCoast == true;
+		// A moat only makes sense around a wall
+		moatNeeded = inputMoat == true && wallsNeeded;
 
 		do try {
 			build();
@@ -143,6 +148,7 @@ class Model {
 		buildWater();
 		optimizeJunctions();
 		buildWalls();
+		buildMoat();
 		buildStreets();
 		createWards();
 		buildGeometry();
@@ -237,12 +243,9 @@ class Model {
 		bridges = [];
 		docks = [];
 
-		if (!coastNeeded && !riverNeeded)
-			return;
-
 		// Overall city radius, used to place the shoreline, size the (finite)
-		// sea polygon, and scale the river to the city rather than to absolute
-		// distances the renderer can't handle.
+		// sea polygon, scale the river, and march the moat drawbridges —
+		// so it must be computed even when no sea or river is wanted.
 		cityR = 0.0;
 		for (p in inner)
 			for (v in p.shape) {
@@ -250,6 +253,9 @@ class Model {
 				if (d > cityR) cityR = d;
 			}
 		if (cityR <= 0) cityR = 100;
+
+		if (!coastNeeded && !riverNeeded)
+			return;
 
 		// Coast first so an estuary river can be aimed at the shoreline.
 		if (coastNeeded)
@@ -361,7 +367,79 @@ class Model {
 
 	// True if a point lies in open water (sea or river).
 	public function isWater( p:Point ):Bool
-		return inSea( p ) || inRiver( p );
+		return inSea( p ) || inRiver( p ) || inMoat( p );
+
+	private static function pip( p:Point, poly:Polygon ):Bool {
+		var inside = false;
+		var n = poly.length;
+		var j = n - 1;
+		for (i in 0...n) {
+			var a = poly[i];
+			var b = poly[j];
+			if ((a.y > p.y) != (b.y > p.y) &&
+			    p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+				inside = !inside;
+			j = i;
+		}
+		return inside;
+	}
+
+	public function inMoat( p:Point ):Bool
+		return moatOuter != null && pip( p, moatOuter ) && !pip( p, moatInner );
+
+	// A ring of water offset outward from the whole fortification — the
+	// smoothed wall itself, plus the citadel's own wall — built by ray-
+	// casting from the city centre so the banks keep true clearance from
+	// every wall kink and tower, however concave the circuit. The moat is
+	// water like any other: buildings straddling it are clipped, roads
+	// stop at its banks (crossing on drawbridges at the gates), and a
+	// river or the sea simply merges into it.
+	private function buildMoat():Void {
+		moatOuter = null;
+		moatInner = null;
+		if (!moatNeeded) return;
+
+		var shapes:Array<Polygon> = [ border.shape ];
+		if (citadel != null) shapes.push( citadel.shape );
+
+		var n = 96;
+		var raw:Array<Float> = [];
+		for (i in 0...n) {
+			var a = i / n * Math.PI * 2;
+			var dx = Math.cos( a ), dy = Math.sin( a );
+			var best = 0.0;
+			for (sh in shapes)
+				sh.forEdge( function( v0, v1 ) {
+					var t = GeomUtils.intersectLines( center.x, center.y, dx, dy, v0.x, v0.y, v1.x - v0.x, v1.y - v0.y );
+					if (t != null && t.y >= 0 && t.y <= 1 && t.x > best)
+						best = t.x;
+				} );
+			raw.push( best );
+		}
+
+		// Smooth so the banks flow instead of copying every wall kink —
+		// but smoothing may only push the ring OUTWARD: clamping to the
+		// raw ray distance keeps the water clear of sharp salients like a
+		// rim-attached castle, whose bulge smoothing would otherwise cut
+		// straight across (leaving the castle wall standing in the moat).
+		var dists = raw.copy();
+		for (pass in 0...3) {
+			dists = [for (i in 0...n) (dists[(i + n - 1) % n] + dists[i] * 2 + dists[(i + 1) % n]) / 4];
+			dists = [for (i in 0...n) Math.max( dists[i], raw[i] )];
+		}
+
+		var gap = 4.0;		// dry berm so wall and towers never stand in water
+		var width = Ward.MAIN_STREET * (2.2 + Random.float() * 1.3);
+
+		function ringAt( extra:Float ):Polygon
+			return [for (i in 0...n) {
+				var a = i / n * Math.PI * 2;
+				new Point( center.x + Math.cos( a ) * (dists[i] + extra), center.y + Math.sin( a ) * (dists[i] + extra) );
+			}];
+
+		moatInner = ringAt( gap );
+		moatOuter = ringAt( gap + width );
+	}
 
 	// Removes a patch from the model and records it as water.
 	private function floodPatch( p:Patch ):Void {
@@ -1140,8 +1218,9 @@ class Model {
 			unassigned.remove( bestPatch );
 		}
 
-		// Outskirts
-		if (wall != null)
+		// Outskirts — but never beyond a moat: the water ring hugs the
+		// wall, so shanty sprawl outside it would stand in or over the moat
+		if (wall != null && !moatNeeded)
 			for (gate in wall.gates) if (!Random.bool( 1 / (nPatches - 5) )) {
 				for (patch in patchByVertex( gate ))
 					if (patch.ward == null) {
