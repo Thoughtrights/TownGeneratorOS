@@ -10,6 +10,14 @@
 	<haxelib name="openfl" version="9.0.2" />
 	<haxelib name="msignal" version="1.2.5" />
 
+	<!-- Render with the canvas 2D backend instead of WebGL. The map is a
+	     static vector drawing, so output is identical, but this makes the
+	     canvas readable: embedders can capture it with toDataURL() (WebGL
+	     clears its drawing buffer after compositing, so captures came back
+	     blank), and a page embedding many maps can't exhaust the browser's
+	     WebGL context limit. -->
+	<haxedef name="canvas" if="html5" />
+
 	<!-- General -->
 	<window background="transparent" fps="120" vsync="true" hardware="true" allow-high-dpi="true"/>
 	<!-- Desktop -->
