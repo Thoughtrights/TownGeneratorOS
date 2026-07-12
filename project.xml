@@ -21,5 +21,11 @@
 	<assets path="Assets">
 		<image path="maroubra.png" id="font" />
 	</assets>
+
+	<!-- Custom shell page: blocks Lime's devicemotion/deviceorientation
+	     listener registrations (this app reads no motion sensors), so
+	     embedding the map in an iframe doesn't spam Permissions-Policy
+	     violations in the console. -->
+	<template path="templates/html5/index.html" rename="index.html" if="html5" />
 	
 </project>
