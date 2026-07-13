@@ -79,11 +79,12 @@ class CityMap extends Sprite {
 			patches.push( patchView );
 		}
 
-		// Surrounding terrain (forest / mountains / swamp) is the lowest
-		// layer of all: farms, roads, water and buildings all draw over it,
-		// so hillside blocks sit on the elevation colours and rivers and
-		// seas cut smoothly through relief and groves.
-		if ((terrain >= 1 && terrain <= 3) || terrain == 5) {
+		// Mountains and swamp are the lowest layer of all: farms, roads,
+		// water and buildings all draw over them, so hillside blocks sit on
+		// the elevation colours and rivers and seas cut smoothly through
+		// the relief. (Woods are added later, ABOVE the water, so canopies
+		// overhang the banks instead of being clipped by them.)
+		if (terrain == 2 || terrain == 3) {
 			var terrainView = new Shape();
 			drawTerrainScatter( terrainView.graphics, model );
 			addChild( terrainView );
@@ -109,6 +110,15 @@ class CityMap extends Sprite {
 				drawDocks( dockView.graphics, model );
 				addChild( dockView );
 			}
+		}
+
+		// Woods sit on top of the water: coastal waters and rivers flow
+		// under the trees, whose canopies overhang the banks. Roads and
+		// buildings still draw over them.
+		if (terrain == 1 || terrain == 5) {
+			var terrainView = new Shape();
+			drawTerrainScatter( terrainView.graphics, model );
+			addChild( terrainView );
 		}
 
 		for (road in model.roads) {
