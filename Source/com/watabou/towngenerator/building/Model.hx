@@ -50,6 +50,7 @@ class Model {
 	private var riverHalves	: Array<Float>;	// per-centreline-vertex half-width (flare)
 	public var bridges		: Array<Array<Point>>;	// each [bankA, bankB] deck endpoints
 	public var docks		: Array<Polygon>;		// narrow I/L harbour docks
+	public var landingBuildings	: Array<Polygon>;	// waterfront hamlet where a road meets the sea
 	private var moatNeeded	: Bool;
 	public var moatOuter	: Polygon;		// outer bank of the moat ring
 	public var moatInner	: Polygon;		// inner bank (hugging the wall)
@@ -242,6 +243,7 @@ class Model {
 		riverPath = null;
 		bridges = [];
 		docks = [];
+		landingBuildings = [];
 
 		// Overall city radius, used to place the shoreline, size the (finite)
 		// sea polygon, scale the river, and march the moat drawbridges —
@@ -760,7 +762,7 @@ class Model {
 		bridges = [];
 		if (riverPath == null || arteries == null) return;
 
-		var margin = Math.max( 3, cityR * 0.03 );
+		var margin = Math.max( 4.5, cityR * 0.03 );
 		var maxBridges = 5;
 		var maxBridgeHalf = riverHalf * 1.35;	// wider than this (estuary mouth): no bridge
 		var step = 2.0;
@@ -1063,6 +1065,125 @@ class Model {
 			smoothStreet( a );
 
 		placeBridges();
+		buildLandings();
+	}
+
+	// Where an outward road runs into the sea, the map earns a little
+	// waterfront: the road now stops at the waterline, a small hamlet of
+	// houses gathers on dry land around its last stretch, and a pier or
+	// two run off the road's end into the water. Uses only post-layout
+	// randomness, so existing seeds keep their city and simply gain the
+	// landing.
+	private function buildLandings():Void {
+		if (seaShape == null || roads == null) return;
+
+		// find each road's landing: the last dry point before the sea
+		var landings:Array<{p:Point, dir:Point}> = [];
+		for (road in roads) {
+			var found = false;
+			for (i in 0...road.length - 1) {
+				if (found) break;
+				var a = road[i], b = road[i + 1];
+				var len = Point.distance( a, b );
+				var steps = Std.int( Math.max( 1, Math.ceil( len / 2 ) ) );
+				var prev = a;
+				for (k in 1...steps + 1) {
+					var q = new Point( a.x + (b.x - a.x) * k / steps, a.y + (b.y - a.y) * k / steps );
+					if (inSea( q )) {
+						var dx = q.x - prev.x, dy = q.y - prev.y;
+						var l = Math.sqrt( dx * dx + dy * dy );
+						if (l < 0.001) l = 1;
+						landings.push( {p: prev, dir: new Point( dx / l, dy / l )} );
+						found = true;
+						break;
+					}
+					prev = q;
+				}
+			}
+		}
+
+		// several roads can share a shore approach — one hamlet is enough
+		var picked:Array<{p:Point, dir:Point}> = [];
+		for (l in landings) {
+			var dup = false;
+			for (o in picked)
+				if (Point.distance( l.p, o.p ) < 22) { dup = true; break; }
+			if (!dup) picked.push( l );
+		}
+
+		for (l in picked) {
+			var dir = l.dir;						// toward the sea
+			var side = new Point( -dir.y, dir.x );	// across the road
+			var roadHalf = Ward.MAIN_STREET / 2 + 0.8;
+
+			// distance from a point to the nearest road/street segment, so
+			// houses can face the road without standing on it (the road may
+			// bend through the hamlet — the landing direction isn't enough)
+			function distToArteries( p:Point ):Float {
+				var best = Math.POSITIVE_INFINITY;
+				if (arteries != null)
+					for (a in arteries)
+						for (i in 0...a.length - 1) {
+							var ax = a[i].x, ay = a[i].y;
+							var dx = a[i + 1].x - ax, dy = a[i + 1].y - ay;
+							var l2 = dx * dx + dy * dy;
+							var t = l2 < 1e-9 ? 0.0 : ((p.x - ax) * dx + (p.y - ay) * dy) / l2;
+							t = t < 0 ? 0 : (t > 1 ? 1 : t);
+							var ddx = p.x - (ax + dx * t), ddy = p.y - (ay + dy * t);
+							var d = Math.sqrt( ddx * ddx + ddy * ddy );
+							if (d < best) best = d;
+						}
+				return best;
+			}
+			var clearance = roadHalf + 1.2;
+
+			// the hamlet: houses facing the road's last stretch — never on
+			// the road, never in the water; a house failing either check is
+			// simply dropped (fewer houses is fine)
+			var n = 4 + Random.int( 0, 3 );
+			for (k in 0...n) {
+				var sgn = (k % 2 == 0) ? 1.0 : -1.0;
+				var back = 3 + (k >> 1) * 7 + Random.float() * 2.5;
+				var w = 3 + Random.float() * 2.5;
+				var h = 3 + Random.float() * 2.5;
+				var off = roadHalf + h / 2 + 1.5 + Random.float() * 2.5;
+
+				var house = Polygon.rect( w, h );
+				house.rotate( Math.atan2( dir.y, dir.x ) + (Random.float() - 0.5) * 0.25 );
+				house.offset( new Point(
+					l.p.x - dir.x * back + side.x * off * sgn,
+					l.p.y - dir.y * back + side.y * off * sgn ) );
+
+				var ok = true;
+				for (v in house)
+					if (isWater( v ) || distToArteries( v ) < clearance) { ok = false; break; }
+				if (ok && distToArteries( house.center ) < clearance) ok = false;
+				if (ok) landingBuildings.push( house );
+			}
+
+			// a pier off the road's end, and sometimes a second to one side
+			var piers = 1 + (Random.bool( 0.45 ) ? 1 : 0);
+			for (k in 0...piers) {
+				var sgn = k == 0 ? 0.0 : (Random.bool() ? 1.0 : -1.0);
+				var from = new Point( l.p.x + side.x * 5 * sgn - dir.x * 3, l.p.y + side.y * 5 * sgn - dir.y * 3 );
+
+				// march this line to its own waterline
+				var d = 0.0;
+				while (d < 40 && !inSea( new Point( from.x + dir.x * d, from.y + dir.y * d ) )) d += 1;
+				if (d >= 40) continue;
+
+				var base = new Point( from.x + dir.x * (d - 1), from.y + dir.y * (d - 1) );
+				var len = 7 + Random.float() * 7;
+				var tip = new Point( base.x + dir.x * len, base.y + dir.y * len );
+
+				if (Random.bool( 0.35 )) {
+					var arm = len * (0.35 + Random.float() * 0.3);
+					var as = Random.bool() ? 1.0 : -1.0;
+					docks.push( [base, tip, new Point( tip.x + side.x * arm * as, tip.y + side.y * arm * as )] );
+				} else
+					docks.push( [base, tip] );
+			}
+		}
 	}
 
 	private function tidyUpRoads() {
