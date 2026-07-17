@@ -147,6 +147,20 @@ class CityMap extends Sprite {
 			renderPatch( patch );
 		}
 
+		// The waterfront hamlets where roads meet the sea — ordinary houses,
+		// guaranteed dry by construction.
+		if (model.landingBuildings != null && model.landingBuildings.length > 0) {
+			var lv = new Shape();
+			var g = lv.graphics;
+			var fill = palette_type == 'ADVANCED' ? advanced_palette.plot_medium : palette.light;
+			var line = palette_type == 'ADVANCED' ? advanced_palette.building : palette.dark;
+			brush.setColor( g, fill, line );
+			for (house in model.landingBuildings)
+				g.drawPolygon( house );
+			drawRoofHatching( g, model.landingBuildings, line );
+			addChild( lv );
+		}
+
 		for (patch in patches)
 			addChild( patch.hotArea );
 
@@ -433,6 +447,12 @@ class CityMap extends Sprite {
 					var b = new Point( p0.x + (p1.x - p0.x) * (k + 1) / pieces, p0.y + (p1.y - p0.y) * (k + 1) / pieces );
 					var mid = new Point( (a.x + b.x) / 2, (a.y + b.y) / 2 );
 					var cls = classify( mid );
+					// a land piece whose far end already dips into open sea or
+					// river is trimmed too, so roads stop at the waterline
+					// instead of poking past it (the moat causeway is exempt)
+					if (cls == 0 && clip &&
+					    (m.inSea( b ) || m.inRiver( b ) || m.inSea( a ) || m.inRiver( a )))
+						cls = 2;
 					var wanted = cls == 0 ? (want & 1) != 0 : (cls == 1 ? (want & 2) != 0 : false);
 					if (!wanted) { pen = false; continue; }
 					if (!pen) { g.moveToPoint( a ); pen = true; }
